@@ -5,6 +5,7 @@ export function formatMoney(amount: number, region: RegionPack, language: string
   return new Intl.NumberFormat(language, {
     style: 'currency',
     currency: region.currency.code,
+    minimumFractionDigits: Number.isInteger(amount) ? 0 : 2,
     maximumFractionDigits: 2,
   }).format(amount)
 }

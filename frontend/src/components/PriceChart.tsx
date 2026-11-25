@@ -13,8 +13,8 @@ export default function PriceChart({ data, height = 240 }: { data: DemoData['ser
           <XAxis dataKey="label" tick={{ fontSize: 11, fill: 'var(--muted)' }} />
           <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} domain={['auto', 'auto']} width={48} />
           <Tooltip />
-          <Line type="monotone" dataKey="price" name={t('home.reported')} stroke="#15803d" strokeWidth={3} dot={false} connectNulls={false} />
-          <Line type="monotone" dataKey="forecast" name={t('home.forecast')} stroke="#65a30d" strokeWidth={3} strokeDasharray="6 5" dot={false} connectNulls={false} />
+          <Line type="monotone" dataKey="price" name={t('home.reported')} stroke="#15803d" strokeWidth={3} dot={false} connectNulls={false} isAnimationActive={false} />
+          <Line type="monotone" dataKey="forecast" name={t('home.forecast')} stroke="#65a30d" strokeWidth={3} strokeDasharray="6 5" dot={false} connectNulls={false} isAnimationActive={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>
