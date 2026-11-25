@@ -221,3 +221,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# AgriConnect AI
+frontend/node_modules/
+frontend/dist/
+*.tsbuildinfo
+.env
