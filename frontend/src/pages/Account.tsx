@@ -4,6 +4,7 @@ import { useRegion } from '../context/RegionContext'
 import { useLanguage } from '../context/LanguageContext'
 import { getDemo } from '../data/demo'
 import { formatMoney, formatNumber } from '../utils/format'
+import { Inbox, Package, ShoppingBag, Sprout } from 'lucide-react'
 import PriceChart from '../components/PriceChart'
 import { Card, DemoBadge, EmptyRegion, btnGhost, btnPrimary } from '../components/ui'
 
@@ -34,11 +35,11 @@ export function FarmerDashboard() {
   const demo = getDemo(region.code)
   if (!demo) return <main className="mx-auto max-w-6xl px-4 py-8"><EmptyRegion /></main>
   const d = demo.dashboard
-  const stats: [string, string][] = [
-    [t('pages.activeListings'), formatNumber(d.active, language.code)],
-    [t('pages.inventory'), `${formatNumber(d.inventory, language.code)} ${t(`units.${d.unit}`)}`],
-    ['Sold', `${formatNumber(d.sold, language.code)} ${t(`units.${d.unit}`)}`],
-    [t('pages.inquiries'), formatNumber(d.inquiries, language.code)],
+  const stats: [typeof Sprout, string, string][] = [
+    [Sprout, t('pages.activeListings'), formatNumber(d.active, language.code)],
+    [Package, t('pages.inventory'), `${formatNumber(d.inventory, language.code)} ${t(`units.${d.unit}`)}`],
+    [ShoppingBag, 'Sold', `${formatNumber(d.sold, language.code)} ${t(`units.${d.unit}`)}`],
+    [Inbox, t('pages.inquiries'), formatNumber(d.inquiries, language.code)],
   ]
   return (
     <main className="mx-auto max-w-6xl space-y-5 px-4 py-8">
@@ -47,7 +48,7 @@ export function FarmerDashboard() {
         <button className={`${btnPrimary} ml-auto`}>+ {t('pages.newListing')}</button>
       </div>
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {stats.map(([k, v]) => <Card key={k}><div className="text-sm" style={{ color: 'var(--muted)' }}>{k}</div><div className="font-display text-2xl font-extrabold text-brand">{v}</div></Card>)}
+        {stats.map(([Icon, k, v]) => <Card key={k}><Icon className="mb-2 text-brand" size={20} aria-hidden /><div className="text-sm" style={{ color: 'var(--muted)' }}>{k}</div><div className="font-display text-2xl font-extrabold text-brand">{v}</div></Card>)}
       </div>
       <div className="grid gap-5 lg:grid-cols-3">
         <Card className="lg:col-span-2"><b>{t('home.featuredListings')}</b>

@@ -1,15 +1,17 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Search } from 'lucide-react'
+import { BarChart3, MessageCircle, Search, Sprout, Users } from 'lucide-react'
 import { useRegion } from '../context/RegionContext'
 import { useLanguage } from '../context/LanguageContext'
 import { getDemo } from '../data/demo'
 import { formatMoney, formatNumber } from '../utils/format'
 import PriceChart from '../components/PriceChart'
+import HeroArt from '../components/art/HeroArt'
+import CropIcon, { cropBg } from '../components/art/CropIcon'
 import { Card, DemoBadge, EmptyRegion, Section, btnGhost, btnPrimary } from '../components/ui'
 
-const STEPS = ['Farmers list their crops', 'Buyers search and compare', 'Chat and agree directly', 'Use market data and AI to decide']
-const BENEFITS = [
+const STEPS: [typeof Sprout, string][] = [[Sprout, 'Farmers list their crops'], [Search, 'Buyers search and compare'], [MessageCircle, 'Chat and agree directly'], [BarChart3, 'Use market data and AI to decide']]
+const BENEFITS: [string, string][] = [
   ['Farmers', 'Reach buyers directly, see reported market prices, and get evidence-based suggestions.'],
   ['Buyers', 'Find crops by region, compare farmers, and post what you need.'],
 ]
@@ -37,9 +39,9 @@ export default function Home() {
               <Link to="/assistant" className="inline-flex min-h-12 items-center rounded-xl border-2 border-white px-6 font-semibold">{t('hero.ask')}</Link>
             </div>
           </div>
-          <div role="img" aria-label={t(region.heroImage.altKey)}
-            className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-lime/70 bg-white/5 p-4 text-center text-sm text-green-100">
-            {t('hero.imageSlot')}<br />{t(region.heroImage.altKey)}
+          <div>
+            <HeroArt scene={region.heroImage.scene} label={t(region.heroImage.altKey)} />
+            <p className="mt-2 text-center text-xs text-green-100/80">{t('hero.imageSlot')}</p>
           </div>
         </div>
       </section>
@@ -60,8 +62,9 @@ export default function Home() {
       <Section title={t('home.featuredCrops')}>
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           {region.commodities.map((c) => (
-            <li key={c.id}><Card className="h-full"><b>{t(c.nameKey)}</b>
-              <div className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>{t(c.categoryKey)}</div></Card></li>
+            <li key={c.id}><Card className="flex h-full items-center gap-3 transition hover:-translate-y-0.5 hover:shadow-md">
+              <CropIcon id={c.id} /><div><b>{t(c.nameKey)}</b>
+              <div className="text-sm" style={{ color: 'var(--muted)' }}>{t(c.categoryKey)}</div></div></Card></li>
           ))}
         </ul>
       </Section>
@@ -70,11 +73,12 @@ export default function Home() {
         {demo ? (
           <ul className="grid gap-4 md:grid-cols-3">
             {demo.listings.map((l) => (
-              <li key={l.id}><Card className="h-full">
-                <b className="text-lg">{t(`commodities.${l.commodity}`)} · {l.variety} · {l.grade}</b>
+              <li key={l.id}><Card className="h-full overflow-hidden !p-0 transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="flex h-24 items-center justify-center" style={{ background: cropBg(l.commodity) }}><CropIcon id={l.commodity} size={56} /></div>
+                <div className="p-5"><b className="text-lg">{t(`commodities.${l.commodity}`)} · {l.variety} · {l.grade}</b>
                 <div className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>{l.place}</div>
                 <div className="mt-3 font-display text-xl font-extrabold text-brand">{money(l.price)} / {t(`units.${l.unit}`)}</div>
-                <div className="text-sm" style={{ color: 'var(--muted)' }}>{formatNumber(l.qty, language.code)} {t(`units.${l.unit}`)} {t('home.available')}</div>
+                <div className="text-sm" style={{ color: 'var(--muted)' }}>{formatNumber(l.qty, language.code)} {t(`units.${l.unit}`)} {t('home.available')}</div></div>
               </Card></li>
             ))}
           </ul>
@@ -112,11 +116,11 @@ export default function Home() {
       </Section>
 
       <Section title={t('home.howItWorks')}>
-        <ol className="grid gap-3 md:grid-cols-4">{STEPS.map((s, i) => <li key={s}><Card className="h-full"><span className="text-brand font-bold">{i + 1}</span><p className="mt-1 text-sm">{s}</p></Card></li>)}</ol>
+        <ol className="grid gap-3 md:grid-cols-4">{STEPS.map(([Icon, s], i) => <li key={s}><Card className="h-full"><span className="flex items-center gap-2 font-bold text-brand"><span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand/10"><Icon size={18} aria-hidden /></span>{i + 1}</span><p className="mt-2 text-sm">{s}</p></Card></li>)}</ol>
       </Section>
 
       <Section title={t('home.benefits')}>
-        <div className="grid gap-4 md:grid-cols-2">{BENEFITS.map(([h, p]) => <Card key={h}><b>{h}</b><p className="mt-1 text-sm">{p}</p></Card>)}</div>
+        <div className="grid gap-4 md:grid-cols-2">{BENEFITS.map(([h, p]) => <Card key={h}><span className="flex items-center gap-2">{h === 'Farmers' ? <Sprout className="text-brand" size={20} aria-hidden /> : <Users className="text-brand" size={20} aria-hidden />}<b>{h}</b></span><p className="mt-2 text-sm">{p}</p></Card>)}</div>
       </Section>
 
       <Section title={t('home.faq')}>
