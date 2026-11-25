@@ -20,6 +20,6 @@ export const IN: RegionPack = {
     { id: 'chilli', nameKey: 'commodities.chilli', categoryKey: 'categories.spices', priceUnit: 'quintal' },
     { id: 'maize', nameKey: 'commodities.maize', categoryKey: 'categories.cereals', priceUnit: 'quintal' },
   ],
-  heroImage: { src: null, altKey: 'hero.imageAlt.IN', scene: 'paddy' },
+  heroImage: { src: '/images/hero/hero-in.jpg', altKey: 'hero.imageAlt.IN', scene: 'paddy' },
   demoOnly: true,
 }

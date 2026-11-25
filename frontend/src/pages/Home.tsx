@@ -43,7 +43,7 @@ export default function Home() {
             </div>
           </div>
           <div className="relative">
-            <HeroArt scene={region.heroImage.scene} label={t(region.heroImage.altKey)} />
+            <HeroArt key={region.code} scene={region.heroImage.scene} label={t(region.heroImage.altKey)} src={region.heroImage.src} />
             <span className="absolute -left-3 top-6 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-forest shadow-lg"><Store size={14} className="text-brand" aria-hidden />Direct from farmers</span>
             <span className="absolute -right-2 top-24 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-forest shadow-lg"><TrendingUp size={14} className="text-brand" aria-hidden />Market prices</span>
             <span className="absolute -bottom-3 left-8 flex items-center gap-2 rounded-xl bg-lime px-3 py-2 text-xs font-bold text-forest shadow-lg"><Sparkles size={14} aria-hidden />AI insights</span>

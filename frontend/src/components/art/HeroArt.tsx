@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 /**
  * Original, generic farm illustrations (no real people, brands or copyrighted characters).
  * A scene id comes from the active country pack; unknown ids fall back to a neutral field.
@@ -68,8 +70,13 @@ function Field() {
 
 const SCENES: Record<string, () => React.ReactNode> = { paddy: Paddy, prairie: Prairie }
 
-export default function HeroArt({ scene, label }: { scene: string; label: string }) {
+export default function HeroArt({ scene, label, src }: { scene: string; label: string; src?: string | null }) {
+  const [failed, setFailed] = useState(false)
   const Scene = SCENES[scene] ?? Field
+  // A real photo wins when its file exists; if it is missing or fails to load, the illustration is shown.
+  if (src && !failed) {
+    return <img src={src} alt={label} onError={() => setFailed(true)} className="h-64 w-full rounded-2xl object-cover" />
+  }
   return (
     <svg viewBox="0 0 400 260" role="img" aria-label={label} className="h-64 w-full rounded-2xl">
       <Scene />
