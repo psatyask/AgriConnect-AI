@@ -1,0 +1,136 @@
+import { Link } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import { Search } from 'lucide-react'
+import { useRegion } from '../context/RegionContext'
+import { useLanguage } from '../context/LanguageContext'
+import { getDemo } from '../data/demo'
+import { formatMoney, formatNumber } from '../utils/format'
+import PriceChart from '../components/PriceChart'
+import { Card, DemoBadge, EmptyRegion, Section, btnGhost, btnPrimary } from '../components/ui'
+
+const STEPS = ['Farmers list their crops', 'Buyers search and compare', 'Chat and agree directly', 'Use market data and AI to decide']
+const BENEFITS = [
+  ['Farmers', 'Reach buyers directly, see reported market prices, and get evidence-based suggestions.'],
+  ['Buyers', 'Find crops by region, compare farmers, and post what you need.'],
+]
+const FAQ = [
+  ['Are the prices guaranteed?', 'No. Market prices are reports from public sources, not guaranteed selling prices.'],
+  ['Is this live data?', 'Not yet. Everything marked DEMO is sample content used to show the layout.'],
+]
+
+export default function Home() {
+  const { t } = useTranslation()
+  const { region } = useRegion()
+  const { language } = useLanguage()
+  const demo = getDemo(region.code)
+  const money = (n: number) => formatMoney(n, region, language.code)
+
+  return (
+    <>
+      <section className="mx-auto mt-6 max-w-6xl px-4">
+        <div className="grid items-center gap-8 rounded-3xl bg-forest p-8 text-white md:grid-cols-2 md:p-14">
+          <div>
+            <h1 className="font-display text-4xl font-extrabold leading-tight md:text-5xl">{t('hero.title')}</h1>
+            <p className="mt-4 max-w-lg text-lg text-green-100">{t('hero.subtitle')}</p>
+            <div className="mt-7 flex flex-wrap gap-3">
+              <Link to="/marketplace" className="inline-flex min-h-12 items-center rounded-xl bg-lime px-6 font-bold text-forest">{t('hero.explore')}</Link>
+              <Link to="/assistant" className="inline-flex min-h-12 items-center rounded-xl border-2 border-white px-6 font-semibold">{t('hero.ask')}</Link>
+            </div>
+          </div>
+          <div role="img" aria-label={t(region.heroImage.altKey)}
+            className="flex h-64 items-center justify-center rounded-2xl border border-dashed border-lime/70 bg-white/5 p-4 text-center text-sm text-green-100">
+            {t('hero.imageSlot')}<br />{t(region.heroImage.altKey)}
+          </div>
+        </div>
+      </section>
+
+      <form className="relative z-10 mx-auto -mt-7 flex max-w-4xl flex-wrap items-end gap-3 rounded-2xl border p-4 shadow-lg"
+        style={{ background: 'var(--card)', borderColor: 'var(--border)' }} onSubmit={(e) => e.preventDefault()}>
+        <label className="flex min-w-48 flex-1 flex-col gap-1 text-xs font-semibold">{t('home.cropLabel')}
+          <input className="min-h-11 rounded-xl border bg-transparent px-3 text-sm font-normal" style={{ borderColor: 'var(--border)' }}
+            placeholder={region.commodities.slice(0, 3).map((c) => t(c.nameKey)).join(', ')} />
+        </label>
+        <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-semibold">{t('home.locationLabel')}
+          <input className="min-h-11 rounded-xl border bg-transparent px-3 text-sm font-normal" style={{ borderColor: 'var(--border)' }}
+            placeholder={region.hierarchy.slice(1).join(' / ')} />
+        </label>
+        <button className={`${btnPrimary} gap-2`}><Search size={16} aria-hidden />{t('home.search')}</button>
+      </form>
+
+      <Section title={t('home.featuredCrops')}>
+        <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {region.commodities.map((c) => (
+            <li key={c.id}><Card className="h-full"><b>{t(c.nameKey)}</b>
+              <div className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>{t(c.categoryKey)}</div></Card></li>
+          ))}
+        </ul>
+      </Section>
+
+      <Section title={t('home.featuredListings')} badge>
+        {demo ? (
+          <ul className="grid gap-4 md:grid-cols-3">
+            {demo.listings.map((l) => (
+              <li key={l.id}><Card className="h-full">
+                <b className="text-lg">{t(`commodities.${l.commodity}`)} · {l.variety} · {l.grade}</b>
+                <div className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>{l.place}</div>
+                <div className="mt-3 font-display text-xl font-extrabold text-brand">{money(l.price)} / {t(`units.${l.unit}`)}</div>
+                <div className="text-sm" style={{ color: 'var(--muted)' }}>{formatNumber(l.qty, language.code)} {t(`units.${l.unit}`)} {t('home.available')}</div>
+              </Card></li>
+            ))}
+          </ul>
+        ) : <EmptyRegion />}
+      </Section>
+
+      <Section title={t('home.priceDashboard')} badge>
+        {demo ? (
+          <Card><div className="overflow-x-auto"><table className="w-full text-sm">
+            <thead><tr className="text-left" style={{ color: 'var(--muted)' }}>
+              <th className="py-2">{t('home.cropLabel')}</th><th>Market</th><th>Min</th><th>Max</th><th>Modal</th></tr></thead>
+            <tbody>{demo.prices.map((p) => (
+              <tr key={p.commodity} className="border-t" style={{ borderColor: 'var(--border)' }}>
+                <td className="py-2 font-semibold">{t(`commodities.${p.commodity}`)}</td><td>{p.market}</td>
+                <td>{money(p.min)}</td><td>{money(p.max)}</td><td>{money(p.modal)} / {t(`units.${p.unit}`)}</td></tr>))}</tbody>
+          </table></div>
+          <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>{t('pages.limits')}</p></Card>
+        ) : <EmptyRegion />}
+      </Section>
+
+      <Section title={t('home.priceTrend')} badge>
+        {demo ? <Card><PriceChart data={demo.series} />
+          <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t(`commodities.${demo.chartCommodity}`)} · {region.currency.code} / {t(`units.${demo.chartUnit}`)}</p></Card> : <EmptyRegion />}
+      </Section>
+
+      <Section title={t('home.aiPreview')} badge>
+        <Card><p className="text-sm">{demo?.questions[0]}</p>
+          <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>{t('pages.shell')}</p>
+          <Link to="/assistant" className={`${btnGhost} mt-4`}>{t('hero.ask')}</Link></Card>
+      </Section>
+
+      <Section title={t('home.knowledgePreview')} badge>
+        <Card><p className="text-sm">{demo ? `${demo.graph.crop} → ${demo.graph.disease}, ${demo.graph.market}, ${demo.graph.soil}, ${demo.graph.program}` : ''}</p>
+          <Link to="/knowledge" className={`${btnGhost} mt-4`}>{t('nav.knowledge')}</Link></Card>
+      </Section>
+
+      <Section title={t('home.howItWorks')}>
+        <ol className="grid gap-3 md:grid-cols-4">{STEPS.map((s, i) => <li key={s}><Card className="h-full"><span className="text-brand font-bold">{i + 1}</span><p className="mt-1 text-sm">{s}</p></Card></li>)}</ol>
+      </Section>
+
+      <Section title={t('home.benefits')}>
+        <div className="grid gap-4 md:grid-cols-2">{BENEFITS.map(([h, p]) => <Card key={h}><b>{h}</b><p className="mt-1 text-sm">{p}</p></Card>)}</div>
+      </Section>
+
+      <Section title={t('home.faq')}>
+        <div className="space-y-2">{FAQ.map(([q, a]) => (
+          <details key={q} className="rounded-xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
+            <summary className="cursor-pointer font-semibold">{q}</summary><p className="mt-2 text-sm">{a}</p></details>))}</div>
+      </Section>
+
+      <footer className="mt-14 bg-forest px-4 py-8 text-sm text-green-100">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
+          <span className="font-display font-bold text-white">{t('brand.name')} · {t('brand.tagline')}</span>
+          <span className="flex items-center gap-2"><DemoBadge label={t('demo.badge')} />{t('demo.notice')}</span>
+        </div>
+      </footer>
+    </>
+  )
+}
