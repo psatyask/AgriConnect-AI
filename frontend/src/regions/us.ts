@@ -27,6 +27,6 @@ export const US: RegionPack = {
     { id: 'soybeans', nameKey: 'commodities.soybeans', categoryKey: 'categories.oilseeds', priceUnit: 'bushel' },
     { id: 'wheat', nameKey: 'commodities.wheat', categoryKey: 'categories.grains', priceUnit: 'bushel' },
   ],
-  heroImage: { src: null, altKey: 'hero.imageAlt.US', scene: 'prairie' },
+  heroImage: { src: '/images/hero/hero-us.jpg', altKey: 'hero.imageAlt.US', scene: 'prairie' },
   demoOnly: true,
 }
