@@ -4,6 +4,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { getDemo } from '../data/demo'
 import { formatMoney, formatNumber } from '../utils/format'
 import PriceChart from '../components/PriceChart'
+import CropIcon, { cropBg } from '../components/art/CropIcon'
 import { Card, DemoBadge, EmptyRegion, btnPrimary } from '../components/ui'
 
 function Shell({ title, children }: { title: string; children: React.ReactNode }) {
@@ -39,12 +40,13 @@ export function Marketplace() {
         {demo ? (
           <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {demo.listings.map((l) => (
-              <li key={l.id}><Card className="h-full">
-                <b>{t(`commodities.${l.commodity}`)} · {l.variety} · {l.grade}</b>
+              <li key={l.id}><Card className="h-full overflow-hidden !p-0 transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="flex h-20 items-center justify-center" style={{ background: cropBg(l.commodity) }}><CropIcon id={l.commodity} size={48} /></div>
+                <div className="p-5"><b>{t(`commodities.${l.commodity}`)} · {l.variety} · {l.grade}</b>
                 <div className="mt-1 text-sm" style={{ color: 'var(--muted)' }}>{l.place}</div>
                 <div className="mt-3 font-display text-xl font-extrabold text-brand">{money(l.price)} / {t(`units.${l.unit}`)}</div>
                 <div className="text-sm" style={{ color: 'var(--muted)' }}>{formatNumber(l.qty, language.code)} {t(`units.${l.unit}`)} {t('home.available')}</div>
-                <button className={`${btnPrimary} mt-3`}>Send inquiry</button>
+                <button className={`${btnPrimary} mt-3`}>Send inquiry</button></div>
               </Card></li>
             ))}
           </ul>

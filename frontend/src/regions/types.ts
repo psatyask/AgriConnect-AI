@@ -37,7 +37,7 @@ export interface RegionPack {
   hierarchy: string[]
   commodities: CommodityDef[]
   /** Hero image slot. Placeholder until licensed photos are supplied. */
-  heroImage: { src: string | null; altKey: string }
+  heroImage: { src: string | null; altKey: string; scene: string }
   /** Marks every datum in this pack as demonstration data (Phase 1 only). */
   demoOnly: boolean
 }
