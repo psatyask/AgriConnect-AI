@@ -47,7 +47,7 @@ export default function Home() {
             <span className="absolute -left-3 top-6 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-forest shadow-lg"><Store size={14} className="text-brand" aria-hidden />Direct from farmers</span>
             <span className="absolute -right-2 top-24 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-forest shadow-lg"><TrendingUp size={14} className="text-brand" aria-hidden />Market prices</span>
             <span className="absolute -bottom-3 left-8 flex items-center gap-2 rounded-xl bg-lime px-3 py-2 text-xs font-bold text-forest shadow-lg"><Sparkles size={14} aria-hidden />AI insights</span>
-            <p className="mt-5 text-center text-xs text-green-100/80">{t('hero.imageSlot')}</p>
+            {!region.heroImage.src && <p className="mt-5 text-center text-xs text-green-100/80">{t('hero.imageSlot')}</p>}
           </div>
         </div>
       </section>
