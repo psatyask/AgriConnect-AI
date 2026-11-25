@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run AgriConnect AI Phase 1 locally:  python app.py
 
-Builds the React frontend if needed (requires Node.js 20+ and npm), then serves it
+Builds the React frontend when it is missing or older than the sources (requires Node.js 20+ and npm), then serves it
 at http://127.0.0.1:8000 and opens your browser. Python standard library only.
 
 Options:  --port 9000   --rebuild   --no-browser
@@ -28,9 +28,30 @@ def run(cmd: list[str]) -> None:
     subprocess.run(cmd, cwd=FRONTEND, check=True, shell=(sys.platform == "win32"))
 
 
+def newest_mtime(paths: list[Path]) -> float:
+    """Latest modification time among files under the given paths (0 if none)."""
+    latest = 0.0
+    for base in paths:
+        files = [base] if base.is_file() else base.rglob("*") if base.exists() else []
+        for f in files:
+            if f.is_file():
+                latest = max(latest, f.stat().st_mtime)
+    return latest
+
+
+def dist_is_stale() -> bool:
+    """True when the built site is missing or older than the frontend sources, so a pull is never hidden by an old build."""
+    index = DIST / "index.html"
+    if not index.exists():
+        return True
+    sources = [FRONTEND / "src", FRONTEND / "public", FRONTEND / "index.html", FRONTEND / "package.json"]
+    return newest_mtime(sources) > index.stat().st_mtime
+
+
 def build(force: bool) -> None:
-    if DIST.exists() and not force:
+    if not force and not dist_is_stale():
         return
+    print("Building the frontend (sources changed or no build found)...", flush=True)
     if shutil.which("npm") is None:
         sys.exit("npm was not found. Install Node.js 20+ from https://nodejs.org and run again.")
     if not (FRONTEND / "node_modules").exists():
@@ -40,6 +61,10 @@ def build(force: bool) -> None:
 
 class SpaHandler(http.server.SimpleHTTPRequestHandler):
     """Serves built files; unknown paths without a file extension fall back to index.html (client-side routing)."""
+
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store")  # dev server: always show the latest build
+        super().end_headers()
 
     def do_GET(self):
         path = self.translate_path(self.path)
