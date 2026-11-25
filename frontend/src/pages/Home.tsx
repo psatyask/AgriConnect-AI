@@ -1,12 +1,14 @@
 import { Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { BarChart3, MessageCircle, Search, Sprout, Users } from 'lucide-react'
+import { BarChart3, Globe, MessageCircle, Search, Sparkles, Sprout, Store, TrendingUp, Users } from 'lucide-react'
 import { useRegion } from '../context/RegionContext'
 import { useLanguage } from '../context/LanguageContext'
 import { getDemo } from '../data/demo'
 import { formatMoney, formatNumber } from '../utils/format'
 import PriceChart from '../components/PriceChart'
 import HeroArt from '../components/art/HeroArt'
+import { FieldBand, HeroPattern, MiniGraph } from '../components/art/Decor'
+import { LANGUAGES } from '../config/languages'
 import CropIcon, { cropBg } from '../components/art/CropIcon'
 import { Card, DemoBadge, EmptyRegion, Section, btnGhost, btnPrimary } from '../components/ui'
 
@@ -22,7 +24,7 @@ const FAQ = [
 
 export default function Home() {
   const { t } = useTranslation()
-  const { region } = useRegion()
+  const { region, regions } = useRegion()
   const { language } = useLanguage()
   const demo = getDemo(region.code)
   const money = (n: number) => formatMoney(n, region, language.code)
@@ -30,8 +32,9 @@ export default function Home() {
   return (
     <>
       <section className="mx-auto mt-6 max-w-6xl px-4">
-        <div className="grid items-center gap-8 rounded-3xl bg-forest p-8 text-white md:grid-cols-2 md:p-14">
-          <div>
+        <div className="relative grid items-center gap-8 overflow-hidden rounded-3xl bg-forest p-8 text-white md:grid-cols-2 md:p-14">
+          <HeroPattern />
+          <div className="relative">
             <h1 className="font-display text-4xl font-extrabold leading-tight md:text-5xl">{t('hero.title')}</h1>
             <p className="mt-4 max-w-lg text-lg text-green-100">{t('hero.subtitle')}</p>
             <div className="mt-7 flex flex-wrap gap-3">
@@ -39,9 +42,12 @@ export default function Home() {
               <Link to="/assistant" className="inline-flex min-h-12 items-center rounded-xl border-2 border-white px-6 font-semibold">{t('hero.ask')}</Link>
             </div>
           </div>
-          <div>
+          <div className="relative">
             <HeroArt scene={region.heroImage.scene} label={t(region.heroImage.altKey)} />
-            <p className="mt-2 text-center text-xs text-green-100/80">{t('hero.imageSlot')}</p>
+            <span className="absolute -left-3 top-6 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-forest shadow-lg"><Store size={14} className="text-brand" aria-hidden />Direct from farmers</span>
+            <span className="absolute -right-2 top-24 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-forest shadow-lg"><TrendingUp size={14} className="text-brand" aria-hidden />Market prices</span>
+            <span className="absolute -bottom-3 left-8 flex items-center gap-2 rounded-xl bg-lime px-3 py-2 text-xs font-bold text-forest shadow-lg"><Sparkles size={14} aria-hidden />AI insights</span>
+            <p className="mt-5 text-center text-xs text-green-100/80">{t('hero.imageSlot')}</p>
           </div>
         </div>
       </section>
@@ -58,6 +64,14 @@ export default function Home() {
         </label>
         <button className={`${btnPrimary} gap-2`}><Search size={16} aria-hidden />{t('home.search')}</button>
       </form>
+
+      <ul className="mx-auto mt-10 grid max-w-6xl grid-cols-2 gap-3 px-4 md:grid-cols-4">
+        {([[Globe, `${regions.length}`, 'Countries'], [Sprout, `${region.commodities.length}`, 'Crops in this region'],
+          [Users, `${LANGUAGES.length}`, 'Languages listed'], [Store, `${demo?.listings.length ?? 0}`, 'Demo listings']] as const).map(([Icon, n, label]) => (
+          <li key={label}><Card className="flex items-center gap-3 !p-4"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand/10 text-brand"><Icon size={22} aria-hidden /></span>
+            <div><div className="font-display text-xl font-extrabold">{n}</div><div className="text-xs" style={{ color: 'var(--muted)' }}>{label}</div></div></Card></li>
+        ))}
+      </ul>
 
       <Section title={t('home.featuredCrops')}>
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -105,16 +119,27 @@ export default function Home() {
       </Section>
 
       <Section title={t('home.aiPreview')} badge>
-        <Card><p className="text-sm">{demo?.questions[0]}</p>
-          <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>{t('pages.shell')}</p>
-          <Link to="/assistant" className={`${btnGhost} mt-4`}>{t('hero.ask')}</Link></Card>
+        <Card className="grid items-center gap-6 md:grid-cols-2">
+          <div className="space-y-3 text-sm">
+            <div className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-forest px-4 py-3 text-white">{demo?.questions[0]}</div>
+            <div className="flex gap-2"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/15 text-brand"><Sparkles size={16} aria-hidden /></span>
+              <div className="rounded-2xl rounded-bl-sm p-3" style={{ background: 'var(--bg)' }}><p>{t('pages.shell')}</p>
+                <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>Market data · Forecast · Verified sources</p></div></div>
+          </div>
+          <div><p className="text-sm" style={{ color: 'var(--muted)' }}>{t('pages.limits')}</p>
+            <Link to="/assistant" className={`${btnGhost} mt-4`}>{t('hero.ask')}</Link></div>
+        </Card>
       </Section>
 
       <Section title={t('home.knowledgePreview')} badge>
-        <Card><p className="text-sm">{demo ? `${demo.graph.crop} → ${demo.graph.disease}, ${demo.graph.market}, ${demo.graph.soil}, ${demo.graph.program}` : ''}</p>
-          <Link to="/knowledge" className={`${btnGhost} mt-4`}>{t('nav.knowledge')}</Link></Card>
+        <Card className="grid items-center gap-4 md:grid-cols-2">
+          {demo && <MiniGraph center={demo.graph.crop} nodes={[demo.graph.disease, demo.graph.market, demo.graph.soil, demo.graph.program]} />}
+          <div><p className="text-sm" style={{ color: 'var(--muted)' }}>{demo ? `${demo.graph.crop} → ${demo.graph.disease}, ${demo.graph.market}, ${demo.graph.soil}, ${demo.graph.program}` : ''}</p>
+            <Link to="/knowledge" className={`${btnGhost} mt-4`}>{t('nav.knowledge')}</Link></div>
+        </Card>
       </Section>
 
+      <FieldBand />
       <Section title={t('home.howItWorks')}>
         <ol className="grid gap-3 md:grid-cols-4">{STEPS.map(([Icon, s], i) => <li key={s}><Card className="h-full"><span className="flex items-center gap-2 font-bold text-brand"><span className="flex h-9 w-9 items-center justify-center rounded-full bg-brand/10"><Icon size={18} aria-hidden /></span>{i + 1}</span><p className="mt-2 text-sm">{s}</p></Card></li>)}</ol>
       </Section>
@@ -129,7 +154,8 @@ export default function Home() {
             <summary className="cursor-pointer font-semibold">{q}</summary><p className="mt-2 text-sm">{a}</p></details>))}</div>
       </Section>
 
-      <footer className="mt-14 bg-forest px-4 py-8 text-sm text-green-100">
+      <FieldBand />
+      <footer className="bg-forest px-4 py-8 text-sm text-green-100">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3">
           <span className="font-display font-bold text-white">{t('brand.name')} · {t('brand.tagline')}</span>
           <span className="flex items-center gap-2"><DemoBadge label={t('demo.badge')} />{t('demo.notice')}</span>
