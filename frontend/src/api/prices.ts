@@ -25,6 +25,13 @@ export const useLatestPrices = (country: string, s: Scope) =>
   useQuery({ queryKey: [country, 'prices', s], retry: false,
     queryFn: () => api<{ items: PriceRow[]; total: number }>(`/api/prices?${qs(country, s)}&limit=500`) })
 
-export const usePriceHistory = (country: string, s: Scope) =>
-  useQuery({ queryKey: [country, 'price-history', s], retry: false,
-    queryFn: () => api<{ points: { date: string; price: number; reports: number }[] }>(`/api/prices/history?${qs(country, s)}&days=180`) })
+export interface History { points: { date: string; price: number; reports: number }[]; basis: 'modal' | 'midpoint'; unit: string | null; needs: 'unit' | 'variety' | null }
+
+export const usePriceHistory = (country: string, s: Scope, variety = '', unit = '') =>
+  useQuery({ queryKey: [country, 'price-history', s, variety, unit], retry: false,
+    queryFn: () => {
+      const p = qs(country, s)
+      if (variety) p.set('variety', variety)
+      if (unit) p.set('unit', unit)
+      return api<History>(`/api/prices/history?${p}&days=180`)
+    } })

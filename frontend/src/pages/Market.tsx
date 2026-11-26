@@ -85,7 +85,6 @@ export function Intelligence() {
   const locations = useLocations(region.code, scope.commodity)
   const latest = useLatestPrices(region.code, scope)
   const [vf, setVf] = useState(''), [uf, setUf] = useState(''), [showAll, setShowAll] = useState(false)
-  const history = usePriceHistory(region.code, scope)
   const states = locations.data?.states ?? []
   const districts = states.find((s) => s.state === scope.state)?.districts ?? []
   const hasDistricts = states.some((s) => s.districts.some((d) => d.district !== ''))
@@ -100,6 +99,8 @@ export function Intelligence() {
   const rows = all.filter((r) => (!vSel || r.variety === vSel) && (!uSel || r.unit === uSel))
     .sort((a, b) => a.variety.localeCompare(b.variety) || a.unit.localeCompare(b.unit) || a.grade.localeCompare(b.grade))
   const shown = showAll ? rows : rows.slice(0, 40)
+  const first = rows[0] ?? all[0]  // filters can match nothing; the header still describes the source
+  const history = usePriceHistory(region.code, scope, vSel, uSel)
   const showRange = rows.some((r) => r.min != null || r.max != null)
   const showModal = rows.some((r) => r.modal != null)  // USDA terminal markets report a low-high range, never a modal price
   const mixedUnits = new Set(rows.map((r) => r.unit)).size > 1 || packages.length > 1
@@ -128,7 +129,7 @@ export function Intelligence() {
       {hasLive && (
         <div className="grid gap-5 lg:grid-cols-2">
           <Card>
-            <p className="mb-2 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.asOf', { date: rows[0].period === 'monthly' ? rows[0].date.slice(0, 7) : rows[0].date })} · {t('prices.source')}: {rows[0].source_label}</p>
+            <p className="mb-2 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.asOf', { date: first.period === 'monthly' ? first.date.slice(0, 7) : first.date })} · {t('prices.source')}: {first.source_label}</p>
             {(varieties.length > 1 || packages.length > 1) && (
               <div className="mb-3 grid gap-3 sm:grid-cols-2">
                 {varieties.length > 1 && field(t('prices.variety'), vSel, setVf, varieties)}
@@ -146,11 +147,12 @@ export function Intelligence() {
             </table></div>
             {rows.length > shown.length && <button type="button" className="mt-3 min-h-11 rounded-xl border px-4 text-sm font-semibold" style={style} onClick={() => setShowAll(true)}>{t('prices.showAll', { n: rows.length })}</button>}
             <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>{t('prices.showing', { shown: shown.length, matching: rows.length })}{total > all.length && ` · ${t('prices.truncated', { shown: all.length, total })}`}</p>
-            <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>{mixedUnits ? t('prices.perPackage') : t('prices.perUnit', { unit: unitLabel(rows[0].unit) })} · {showRange && `${t(showModal ? 'prices.modalExplain' : 'prices.rangeExplain')} `}{t('pages.limits')}</p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>{mixedUnits ? t('prices.perPackage') : t('prices.perUnit', { unit: unitLabel(first.unit) })} · {showRange && `${t(showModal ? 'prices.modalExplain' : 'prices.rangeExplain')} `}{t('pages.limits')}</p>
           </Card>
           <Card><b>{t('prices.history')}</b>
-            {series.length > 1 ? <PriceChart data={series} demo={false} /> : <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.historyThin')}</p>}
-            <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t(rows[0].period === 'monthly' ? 'prices.historyHintMonthly' : 'prices.historyHint')}</p></Card>
+            {history.data?.needs ? <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>{t(history.data.needs === 'unit' ? 'prices.historyPickUnit' : 'prices.historyPickVariety')}</p>
+              : series.length > 1 ? <PriceChart data={series} demo={false} /> : <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.historyThin')}</p>}
+            <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t(first.period === 'monthly' ? 'prices.historyHintMonthly' : history.data?.basis === 'midpoint' ? 'prices.historyHintMid' : 'prices.historyHint', { unit: unitLabel(history.data?.unit ?? first.unit) })}</p></Card>
         </div>)}
       {!hasLive && !latest.isError && latest.isSuccess && (
         <Card><p className="text-sm font-semibold">{t('prices.noData')}</p><p className="text-sm" style={{ color: 'var(--muted)' }}>{t('prices.noDataHint')}</p></Card>)}

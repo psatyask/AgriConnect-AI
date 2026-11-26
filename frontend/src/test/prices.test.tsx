@@ -121,3 +121,30 @@ test('long terminal-market lists: first 40 lines, filters, show-all, and an hone
   await user.selectOptions(screen.getByLabelText('Unit'), '10 lb cartons')
   expect(await screen.findByText(/Showing 5 of 5 price lines/)).toBeInTheDocument()
 })
+
+test('history for range-only prices asks for one package, then draws the midpoint chart with its basis explained', async () => {
+  window.localStorage.setItem('agri.country', 'US')
+  const base = { state: 'Test State One', district: '', market: 'Test Terminal Market', variety: 'ROUND TYPE', grade: '', date: '2026-11-23', modal: null, currency: 'USD', period: 'daily',
+    source: 'ams', source_label: 'USDA AMS Market News, terminal markets' }
+  const urls: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    urls.push(url)
+    const reply = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as Response
+    if (url === '/api/auth/me') return reply(401, {})
+    if (url === '/api/config') return reply(200, { googleClientId: null })
+    if (url.startsWith('/api/prices/locations')) return reply(200, { as_of: '2026-11-23', states: [{ state: 'Test State One', districts: [{ district: '', markets: ['Test Terminal Market'] }] }] })
+    if (url.startsWith('/api/prices/history')) {
+      return url.includes('unit=') ? reply(200, { basis: 'midpoint', unit: '25 lb cartons', needs: null, points: [{ date: '2026-11-16', price: 22, reports: 2 }, { date: '2026-11-20', price: 24, reports: 1 }] })
+        : reply(200, { basis: 'midpoint', unit: null, needs: 'unit', points: [] })
+    }
+    if (url.startsWith('/api/prices?')) return reply(200, { total: 2, items: [{ ...base, min: 20, max: 24, unit: '25 lb cartons' }, { ...base, min: 9, max: 10, unit: '10 lb cartons' }] })
+    return reply(404, {})
+  }))
+  const user = userEvent.setup()
+  page()
+  expect(await screen.findByText(/Pick one package in the Unit filter/)).toBeInTheDocument()
+  await user.selectOptions(screen.getByLabelText('Unit'), '25 lb cartons')
+  expect(await screen.findByText(/Midpoint of the reported low–high range, per 25 lb cartons/)).toBeInTheDocument()
+  expect(screen.queryByText(/Pick one package/)).not.toBeInTheDocument()
+  expect(urls.some((u) => u.startsWith('/api/prices/history') && u.includes('unit=25+lb+cartons'))).toBe(true)
+})

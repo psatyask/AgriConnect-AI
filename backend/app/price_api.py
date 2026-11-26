@@ -58,9 +58,32 @@ def latest(db: Db, country: Country, commodity: Crop, state: Place = None, distr
 
 @router.get("/history")
 def history(db: Db, country: Country, commodity: Crop, state: Place = None, district: Place = None, market: Place = None,
-            days: Annotated[int, Query(ge=7, le=730)] = 90) -> dict:
-    """Daily average of the modal price in scope. Days with no report are simply absent (no interpolation)."""
+            variety: Place = None, unit: Place = None, days: Annotated[int, Query(ge=7, le=730)] = 90) -> dict:
+    """Daily average price in scope; days with no report are simply absent (no interpolation).
+
+    Sources with a modal price are charted by modal. Range-only sources (USDA terminal markets) are charted by the midpoint
+    of the reported low-high range. Prices quoted per different packages are never averaged together, and range-only data
+    is not averaged across different varieties: the caller is told to pick one (`needs`).
+    """
     since = (utcnow() - timedelta(days=days)).date()
-    stmt = _scope(select(P.obs_date, func.avg(P.modal_price), func.count()), country, commodity, state, district, market)
-    rows = db.execute(stmt.where(P.obs_date >= since, P.modal_price.is_not(None)).group_by(P.obs_date).order_by(P.obs_date)).all()
-    return {"points": [{"date": d.isoformat(), "price": round(float(a), 2), "reports": n} for d, a, n in rows]}
+
+    def scoped(stmt):
+        stmt = _scope(stmt, country, commodity, state, district, market).where(P.obs_date >= since)
+        if variety:
+            stmt = stmt.where(P.variety == variety)
+        if unit:
+            stmt = stmt.where(P.unit == unit)
+        return stmt
+
+    n_units, n_varieties, n_no_modal, only_unit = db.execute(scoped(select(
+        func.count(func.distinct(P.unit)), func.count(func.distinct(P.variety)).filter(P.variety != ""),
+        func.count().filter(P.modal_price.is_(None)), func.min(P.unit)))).one()
+    basis = "midpoint" if n_no_modal else "modal"
+    out = {"points": [], "basis": basis, "unit": only_unit if n_units == 1 else None, "needs": None}
+    if n_units > 1:
+        return {**out, "needs": "unit"}
+    if basis == "midpoint" and n_varieties > 1:
+        return {**out, "needs": "variety"}
+    value = func.coalesce(P.modal_price, (P.min_price + P.max_price) / 2, P.min_price, P.max_price)
+    rows = db.execute(scoped(select(P.obs_date, func.avg(value), func.count())).where(value.is_not(None)).group_by(P.obs_date).order_by(P.obs_date)).all()
+    return {**out, "points": [{"date": d.isoformat(), "price": round(float(a), 2), "reports": n} for d, a, n in rows]}

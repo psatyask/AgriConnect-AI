@@ -226,3 +226,30 @@ def test_latest_reports_the_true_total_when_the_page_limit_cuts_it_short(client)
     cut = client.get("/api/prices?country=US&commodity=tomato&limit=2").json()
     assert full["total"] == 3 and len(full["items"]) == 3
     assert cut["total"] == 3 and len(cut["items"]) == 2  # the page can say "2 of 3", never silently hide the rest
+
+
+def _terminal(day, variety, unit, low, high, grade=""):
+    from datetime import date as d
+    from decimal import Decimal
+    from app.prices.base import PriceRecord
+    return PriceRecord(country="US", source="ams", state="North Carolina", district="", market="Test Terminal Market", commodity_raw="Tomatoes",
+                       commodity="tomato", variety=variety, grade=grade, obs_date=d(2026, 11, day), min_price=Decimal(low), max_price=Decimal(high),
+                       modal_price=None, unit=unit, currency="USD")
+
+
+def test_history_of_range_only_prices_uses_the_midpoint_and_never_mixes_packages_or_varieties(client, monkeypatch):
+    from datetime import datetime, timezone
+    from app import price_api
+    monkeypatch.setattr(price_api, "utcnow", lambda: datetime(2026, 11, 27, tzinfo=timezone.utc))
+    recs = [_terminal(16, "ROUND", "25 lb cartons", "20", "24", "a"), _terminal(16, "ROUND", "25 lb cartons", "30", "34", "b"),
+            _terminal(20, "ROUND", "25 lb cartons", "22", "26"),   # 17-19 have no report: left blank, not interpolated
+            _terminal(20, "ROUND", "10 lb cartons", "8", "9"), _terminal(20, "ROMA", "25 lb cartons", "40", "44")]
+    with SessionLocal() as db:
+        upsert(db, recs)
+    base = "/api/prices/history?country=US&commodity=tomato&days=30"
+    assert client.get(base).json()["needs"] == "unit"  # 25 lb and 10 lb cartons are never averaged together
+    r = client.get(base + "&unit=25 lb cartons").json()
+    assert r["needs"] == "variety" and r["points"] == []  # ROUND and ROMA are not averaged together either
+    r = client.get(base + "&unit=25 lb cartons&variety=ROUND").json()
+    assert r["needs"] is None and r["basis"] == "midpoint" and r["unit"] == "25 lb cartons"
+    assert r["points"] == [{"date": "2026-11-16", "price": 27.0, "reports": 2}, {"date": "2026-11-20", "price": 24.0, "reports": 1}]  # (22+34)/2 and 24
