@@ -151,6 +151,9 @@ const en = {
     perPackage: "Prices are per the package shown in the Unit column.",
     unit: "Unit",
     rangeExplain: "Min / Max = the lowest and highest price reported that day.",
+    showAll: "Show all {{n}} price lines",
+    showing: "Showing {{shown}} of {{matching}} price lines",
+    truncated: "the source has {{total}} lines in total, only the first {{shown}} were loaded",
   },
   pages: {
     filters: 'Filters',

@@ -81,8 +81,8 @@ test('US terminal markets: package shown per row, low-high only, market picker w
   page()
   expect(await screen.findAllByText('Test Terminal Market')).not.toHaveLength(0)
   expect(screen.getByRole('columnheader', { name: 'Unit' })).toBeInTheDocument()
-  expect(screen.getByText('25 lb cartons')).toBeInTheDocument()
-  expect(screen.getByText('20 lb cartons')).toBeInTheDocument()
+  expect(screen.getByRole('cell', { name: '25 lb cartons' })).toBeInTheDocument()
+  expect(screen.getByRole('cell', { name: '20 lb cartons' })).toBeInTheDocument()
   expect(screen.getByText('large · organic')).toBeInTheDocument()
   expect(screen.queryByRole('columnheader', { name: /Modal/ })).not.toBeInTheDocument()
   expect(screen.getByText(/Prices are per the package shown in the Unit column/)).toBeInTheDocument()
@@ -94,4 +94,30 @@ test('US terminal markets: package shown per row, low-high only, market picker w
   expect(market).toBeEnabled()
   await user.selectOptions(market, 'Test Terminal Market')
   await waitFor(() => expect(urls.some((u) => u.includes('market=Test+Terminal+Market'))).toBe(true))
+})
+
+test('long terminal-market lists: first 40 lines, filters, show-all, and an honest note when the server cut the list', async () => {
+  window.localStorage.setItem('agri.country', 'US')
+  const base = { state: 'Test State One', district: '', market: 'Test Terminal Market', date: '2026-11-23', modal: null, currency: 'USD', period: 'daily',
+    source: 'ams', source_label: 'USDA AMS Market News, terminal markets' }
+  const lines = Array.from({ length: 45 }, (_, i) => ({ ...base, variety: i % 2 ? 'VINE RIPES' : 'ROMA TYPE', grade: `size ${String(i).padStart(2, '0')}`, min: 10 + i, max: 12 + i, unit: i < 40 ? '25 lb cartons' : '10 lb cartons' }))
+  const urls: string[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    urls.push(url)
+    const reply = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as Response
+    if (url === '/api/auth/me') return reply(401, {})
+    if (url === '/api/config') return reply(200, { googleClientId: null })
+    if (url.startsWith('/api/prices/locations')) return reply(200, { as_of: '2026-11-23', states: [{ state: 'Test State One', districts: [{ district: '', markets: ['Test Terminal Market'] }] }] })
+    if (url.startsWith('/api/prices/history')) return reply(200, { points: [] })
+    if (url.startsWith('/api/prices?')) return reply(200, { total: 60, items: lines })
+    return reply(404, {})
+  }))
+  const user = userEvent.setup()
+  page()
+  expect(await screen.findByText(/Showing 40 of 45 price lines/)).toBeInTheDocument()
+  expect(screen.getByText(/the source has 60 lines in total, only the first 45 were loaded/)).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Show all 45 price lines' }))
+  expect(await screen.findByText(/Showing 45 of 45 price lines/)).toBeInTheDocument()
+  await user.selectOptions(screen.getByLabelText('Unit'), '10 lb cartons')
+  expect(await screen.findByText(/Showing 5 of 5 price lines/)).toBeInTheDocument()
 })

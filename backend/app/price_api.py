@@ -41,13 +41,14 @@ def locations(db: Db, country: Country, commodity: Crop) -> dict:
 
 @router.get("")
 def latest(db: Db, country: Country, commodity: Crop, state: Place = None, district: Place = None, market: Place = None,
-           limit: Annotated[int, Query(ge=1, le=200)] = 50) -> dict:
+           limit: Annotated[int, Query(ge=1, le=500)] = 50) -> dict:
     """The most recent reported price for each market/variety/grade/package in scope. Nothing is estimated."""
     base = _scope(select(P, func.row_number().over(
         partition_by=(P.market, P.variety, P.grade, P.unit), order_by=P.obs_date.desc()).label("rn")), country, commodity, state, district, market)
     ranked = base.subquery()  # works on every SQLAlchemy 2.x (no PostgreSQL-only DISTINCT ON helper)
+    total = db.scalar(select(func.count()).select_from(ranked).where(ranked.c.rn == 1)) or 0  # so the page can say when it shows only part
     rows = db.execute(select(ranked).where(ranked.c.rn == 1).order_by(ranked.c.obs_date.desc(), ranked.c.market).limit(limit)).mappings().all()
-    return {"items": [{
+    return {"total": total, "items": [{
         "state": r["state"], "district": r["district"], "market": r["market"], "variety": r["variety"], "grade": r["grade"],
         "date": r["obs_date"].isoformat(), "min": float(r["min_price"]) if r["min_price"] is not None else None,
         "max": float(r["max_price"]) if r["max_price"] is not None else None, "modal": float(r["modal_price"]) if r["modal_price"] is not None else None,

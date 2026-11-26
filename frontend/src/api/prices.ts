@@ -23,7 +23,7 @@ export const useLocations = (country: string, commodity: string) =>
 
 export const useLatestPrices = (country: string, s: Scope) =>
   useQuery({ queryKey: [country, 'prices', s], retry: false,
-    queryFn: () => api<{ items: PriceRow[] }>(`/api/prices?${qs(country, s)}&limit=100`) })
+    queryFn: () => api<{ items: PriceRow[]; total: number }>(`/api/prices?${qs(country, s)}&limit=500`) })
 
 export const usePriceHistory = (country: string, s: Scope) =>
   useQuery({ queryKey: [country, 'price-history', s], retry: false,

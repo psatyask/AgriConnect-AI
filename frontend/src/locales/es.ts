@@ -153,6 +153,9 @@ const es: Messages = {
     perPackage: "Los precios son por el envase que se muestra en la columna Unidad.",
     unit: "Unidad",
     rangeExplain: "Mín. / Máx. = el precio más bajo y más alto registrado ese día.",
+    showAll: "Mostrar las {{n}} líneas de precio",
+    showing: "Mostrando {{shown}} de {{matching}} líneas de precio",
+    truncated: "la fuente tiene {{total}} líneas en total, solo se cargaron las primeras {{shown}}",
   },
   pages: {
     filters: 'Filtros',

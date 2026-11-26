@@ -84,6 +84,7 @@ export function Intelligence() {
   const [scope, setScope] = useState<Scope>({ commodity: region.commodities[0].id, state: '', district: '', market: '' })
   const locations = useLocations(region.code, scope.commodity)
   const latest = useLatestPrices(region.code, scope)
+  const [vf, setVf] = useState(''), [uf, setUf] = useState(''), [showAll, setShowAll] = useState(false)
   const history = usePriceHistory(region.code, scope)
   const states = locations.data?.states ?? []
   const districts = states.find((s) => s.state === scope.state)?.districts ?? []
@@ -91,12 +92,19 @@ export function Intelligence() {
   // Sources without a district level (US terminal markets) list their markets straight under the state.
   const markets = hasDistricts ? (districts.find((d) => d.district === scope.district)?.markets ?? []) : districts.flatMap((d) => d.markets)
   const hasMarkets = states.some((s) => s.districts.some((d) => d.markets.some((m) => m !== 'State average')))
-  const rows = latest.data?.items ?? []
+  const all = latest.data?.items ?? []
+  const total = latest.data?.total ?? all.length
+  const varieties = [...new Set(all.map((r) => r.variety).filter(Boolean))].sort()
+  const packages = [...new Set(all.map((r) => r.unit))].sort()
+  const vSel = varieties.includes(vf) ? vf : '', uSel = packages.includes(uf) ? uf : ''  // a filter from another crop quietly resets
+  const rows = all.filter((r) => (!vSel || r.variety === vSel) && (!uSel || r.unit === uSel))
+    .sort((a, b) => a.variety.localeCompare(b.variety) || a.unit.localeCompare(b.unit) || a.grade.localeCompare(b.grade))
+  const shown = showAll ? rows : rows.slice(0, 40)
   const showRange = rows.some((r) => r.min != null || r.max != null)
   const showModal = rows.some((r) => r.modal != null)  // USDA terminal markets report a low-high range, never a modal price
-  const mixedUnits = new Set(rows.map((r) => r.unit)).size > 1
+  const mixedUnits = new Set(rows.map((r) => r.unit)).size > 1 || packages.length > 1
   const unitLabel = (u: string) => t(`units.${u}`, { defaultValue: u })
-  const hasLive = rows.length > 0
+  const hasLive = all.length > 0
   const pick = (patch: Partial<Scope>) => setScope((p) => ({ ...p, ...patch }))
   const sel = 'min-h-11 rounded-xl border px-3 text-sm'
   const style = { borderColor: 'var(--border)', background: 'var(--card)' }
@@ -121,9 +129,14 @@ export function Intelligence() {
         <div className="grid gap-5 lg:grid-cols-2">
           <Card>
             <p className="mb-2 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.asOf', { date: rows[0].period === 'monthly' ? rows[0].date.slice(0, 7) : rows[0].date })} · {t('prices.source')}: {rows[0].source_label}</p>
+            {(varieties.length > 1 || packages.length > 1) && (
+              <div className="mb-3 grid gap-3 sm:grid-cols-2">
+                {varieties.length > 1 && field(t('prices.variety'), vSel, setVf, varieties)}
+                {packages.length > 1 && field(t('prices.unit'), uSel, setUf, packages)}
+              </div>)}
             <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead><tr className="text-left" style={{ color: 'var(--muted)' }}><th className="py-2">{t('prices.market')}</th><th>{t('prices.variety')}</th><th>{t('prices.date')}</th>{mixedUnits && <th>{t('prices.unit')}</th>}{showRange && <><th>{t('prices.min')}</th><th>{t('prices.max')}</th></>}{showModal && <th>{showRange ? t('prices.modal') : t('prices.price')}</th>}</tr></thead>
-              <tbody>{rows.map((r) => (
+              <tbody>{shown.map((r) => (
                 <tr key={`${r.market}-${r.variety}-${r.grade}-${r.unit}`} className="border-t" style={{ borderColor: 'var(--border)' }}>
                   <td className="py-2 font-semibold">{r.market}<div className="text-xs font-normal" style={{ color: 'var(--muted)' }}>{[r.district, r.state].filter(Boolean).join(', ')}</div></td>
                   <td>{r.variety || '—'}{r.grade && <div className="text-xs" style={{ color: 'var(--muted)' }}>{r.grade}</div>}</td><td>{r.period === 'monthly' ? r.date.slice(0, 7) : r.date}</td>
@@ -131,7 +144,9 @@ export function Intelligence() {
                   {showRange && <><td>{r.min != null ? money(r.min) : '—'}</td><td>{r.max != null ? money(r.max) : '—'}</td></>}
                   {showModal && <td className="font-semibold">{r.modal != null ? money(r.modal) : '—'}</td>}</tr>))}</tbody>
             </table></div>
-            <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>{mixedUnits ? t('prices.perPackage') : t('prices.perUnit', { unit: unitLabel(rows[0].unit) })} · {showRange && `${t(showModal ? 'prices.modalExplain' : 'prices.rangeExplain')} `}{t('pages.limits')}</p>
+            {rows.length > shown.length && <button type="button" className="mt-3 min-h-11 rounded-xl border px-4 text-sm font-semibold" style={style} onClick={() => setShowAll(true)}>{t('prices.showAll', { n: rows.length })}</button>}
+            <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>{t('prices.showing', { shown: shown.length, matching: rows.length })}{total > all.length && ` · ${t('prices.truncated', { shown: all.length, total })}`}</p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>{mixedUnits ? t('prices.perPackage') : t('prices.perUnit', { unit: unitLabel(rows[0].unit) })} · {showRange && `${t(showModal ? 'prices.modalExplain' : 'prices.rangeExplain')} `}{t('pages.limits')}</p>
           </Card>
           <Card><b>{t('prices.history')}</b>
             {series.length > 1 ? <PriceChart data={series} demo={false} /> : <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.historyThin')}</p>}

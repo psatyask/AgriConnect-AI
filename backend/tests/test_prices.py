@@ -70,8 +70,8 @@ def test_latest_returns_newest_row_per_market_with_source(client):
 
 def test_nothing_is_invented_for_unknown_places_or_countries(client):
     seed()
-    assert client.get("/api/prices?country=IN&commodity=tomato&market=Nowhere").json() == {"items": []}
-    assert client.get("/api/prices?country=US&commodity=corn").json() == {"items": []}
+    assert client.get("/api/prices?country=IN&commodity=tomato&market=Nowhere").json() == {"total": 0, "items": []}
+    assert client.get("/api/prices?country=US&commodity=corn").json() == {"total": 0, "items": []}
     assert client.get("/api/prices?country=india&commodity=tomato").status_code == 422
 
 
@@ -215,3 +215,14 @@ def test_ams_import_command_reports_unmapped_products_and_rejects_nothing_silent
     out = capsys.readouterr().out
     assert "5 price rows stored, 5 unusable rows" in out and "no package or unit (1)" in out and "no price (1)" in out and "1 rows for products the app does not map" in out
     assert "Onions, Green (1)" in out and "FAILED: Broken: MARS API returned HTTP 500" in out
+
+
+def test_latest_reports_the_true_total_when_the_page_limit_cuts_it_short(client):
+    from app.prices import ams
+    recs = [r for r in map(ams.parse_record, AMS_RAW) if r and r.commodity == "tomato"]
+    with SessionLocal() as db:
+        upsert(db, recs)
+    full = client.get("/api/prices?country=US&commodity=tomato").json()
+    cut = client.get("/api/prices?country=US&commodity=tomato&limit=2").json()
+    assert full["total"] == 3 and len(full["items"]) == 3
+    assert cut["total"] == 3 and len(cut["items"]) == 2  # the page can say "2 of 3", never silently hide the rest
