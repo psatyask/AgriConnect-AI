@@ -1,0 +1,21 @@
+# Local development database. Start with:  docker compose up -d db
+# pgvector image = PostgreSQL 16 + the vector extension (used later for document RAG).
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: agriconnect-db
+    environment:
+      POSTGRES_USER: agri
+      POSTGRES_PASSWORD: agri_dev_pw
+      POSTGRES_DB: agriconnect
+    ports:
+      - "5432:5432"
+    volumes:
+      - agri_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agri -d agriconnect"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  agri_pgdata:

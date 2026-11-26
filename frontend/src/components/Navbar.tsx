@@ -5,6 +5,7 @@ import { Check, ChevronDown, Menu, Moon, Search, Sun, X } from 'lucide-react'
 import { useRegion } from '../context/RegionContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useTheme } from '../context/ThemeContext'
+import { useAuth } from '../context/AuthContext'
 import { searchLanguages } from '../config/languages'
 
 /** Closes a popover on outside click or Escape. */
@@ -111,6 +112,7 @@ const LINKS: [string, string][] = [
 export default function Navbar() {
   const { t } = useTranslation()
   const { usingFallback } = useLanguage()
+  const { user, logout } = useAuth()
   const [drawer, setDrawer] = useState(false)
   useEffect(() => {
     if (!drawer) return
@@ -132,8 +134,17 @@ export default function Navbar() {
         </nav>
         <div className="ml-auto flex items-center gap-2 xl:ml-0">
           <RegionSelector /><LanguageSelector /><ThemeToggle />
-          <Link to="/login" className="hidden min-h-11 items-center px-2 text-sm font-semibold sm:flex">{t('nav.login')}</Link>
-          <Link to="/login" className="hidden min-h-11 items-center rounded-xl bg-brand px-4 text-sm font-semibold text-white sm:flex">{t('nav.register')}</Link>
+          {user ? (
+            <>
+              <Link to={`/dashboard/${user.role === 'buyer' ? 'buyer' : 'farmer'}`} className="hidden min-h-11 items-center px-2 text-sm font-semibold sm:flex">{user.name || user.email}</Link>
+              <button className="hidden min-h-11 items-center rounded-xl border px-3 text-sm font-semibold sm:flex" style={{ borderColor: 'var(--border)' }} onClick={() => { void logout() }}>{t('auth.signOut')}</button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" className="hidden min-h-11 items-center px-2 text-sm font-semibold sm:flex">{t('nav.login')}</Link>
+              <Link to="/login" className="hidden min-h-11 items-center rounded-xl bg-brand px-4 text-sm font-semibold text-white sm:flex">{t('nav.register')}</Link>
+            </>
+          )}
           <button className={`${pill} xl:hidden`} style={{ borderColor: 'var(--border)' }} aria-label={t('nav.menu')}
             aria-expanded={drawer} onClick={() => setDrawer(true)}><Menu size={18} aria-hidden /></button>
         </div>
