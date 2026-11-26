@@ -10,7 +10,7 @@
 import csv
 import subprocess
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from collections import Counter
 
@@ -84,8 +84,13 @@ def probe_ams(arg: str = "") -> None:
     if arg.isdigit():
         data = ams.sample_report(arg)
         Path(f"ams_{arg}.json").write_text(json.dumps(data, indent=1, default=str))
-        print(f"Saved the full response to ams_{arg}.json. Structure:")
+        print(f"--- A) report description (saved to ams_{arg}.json) ---")
         _outline(data)
+        begin = sys.argv[3] if len(sys.argv) > 3 else (date.today() - timedelta(days=7)).strftime("%m/%d/%Y")
+        rows = ams.report_rows(arg, begin)
+        Path(f"ams_{arg}_rows.json").write_text(json.dumps(rows, indent=1, default=str))
+        print(f"--- B) price rows since {begin} (saved to ams_{arg}_rows.json) ---")
+        _outline(rows)
         return
     found = ams.list_reports(arg)
     for r in found[:150]:

@@ -31,3 +31,8 @@ def list_reports(keyword: str = "") -> list[dict]:
 def sample_report(slug_id: str, limit: int = 3):
     data = _get(f"reports/{slug_id}", {"allSections": "true"})
     return data
+
+
+def report_rows(slug_id: str, begin: str):
+    """Rows for a report from a date (MM/DD/YYYY), as in USDA's examples: reports/<id>?q=report_begin_date=<date>."""
+    return _get(f"reports/{slug_id}", {"q": f"report_begin_date={begin}"})
