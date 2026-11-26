@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -7,9 +7,14 @@ import { Intelligence } from '../pages/Market'
 
 const TREE = { as_of: '2026-11-26', states: [{ state: 'Test State', districts: [{ district: 'Test District A', markets: ['Test Mandi 1'] }] }] }
 const ROW = { state: 'Test State', district: 'Test District A', market: 'Test Mandi 1', variety: 'Local', grade: 'FAQ', date: '2026-11-26',
-  min: 1800, max: 2600, modal: 2200, unit: 'quintal', currency: 'INR', source: 'agmarknet', source_label: 'Agmarknet (Government of India)' }
+  min: 1800, max: 2600, modal: 2200, unit: 'quintal', currency: 'INR', period: 'daily', source: 'agmarknet', source_label: 'Agmarknet (Government of India)' }
+const HIST = { basis: 'modal', unit: 'quintal', needs: null, points: [] }
+const TERMINAL = { as_of: '2026-11-23', states: [{ state: 'Test State One', districts: [{ district: '', markets: ['Test Terminal Market'] }] }] }
+const TBASE = { state: 'Test State One', district: '', market: 'Test Terminal Market', variety: 'ROUND TYPE', date: '2026-11-23', modal: null, currency: 'USD', period: 'daily',
+  source: 'ams', source_label: 'USDA AMS Market News, terminal markets' }
 
-function mock(rows: unknown[], tree: unknown = TREE) {
+interface Mock { rows: unknown[]; tree?: unknown; total?: number; checked?: string | null; history?: (url: string) => unknown }
+function mock({ rows, tree = TREE, total, checked = null, history = () => HIST }: Mock) {
   const urls: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     urls.push(url)
@@ -17,8 +22,8 @@ function mock(rows: unknown[], tree: unknown = TREE) {
     if (url === '/api/auth/me') return reply(401, {})
     if (url === '/api/config') return reply(200, { googleClientId: null })
     if (url.startsWith('/api/prices/locations')) return reply(200, tree)
-    if (url.startsWith('/api/prices/history')) return reply(200, { points: [] })
-    if (url.startsWith('/api/prices?')) return reply(200, { items: rows })
+    if (url.startsWith('/api/prices/history')) return reply(200, history(url))
+    if (url.startsWith('/api/prices?')) return reply(200, { total: total ?? rows.length, checked_at: checked, items: rows })
     return reply(404, {})
   }))
   return urls
@@ -28,64 +33,76 @@ beforeEach(() => window.localStorage.clear())
 afterEach(() => vi.unstubAllGlobals())
 
 test('reported prices show market, date, source and no demo label', async () => {
-  mock([ROW])
+  mock({ rows: [ROW] })
   page()
-  expect(await screen.findByText('Test Mandi 1')).toBeInTheDocument()
+  expect(await screen.findByText(/Test Mandi 1, Test State/)).toBeInTheDocument()
   expect(screen.getByText(/Agmarknet \(Government of India\)/)).toBeInTheDocument()
   expect(screen.getByText(/Latest report: 2026-11-26/)).toBeInTheDocument()
   expect(screen.queryByText(/Live prices for .* are not connected/)).not.toBeInTheDocument()
 })
 
 test('with no stored prices the page says so and labels the demo table', async () => {
-  mock([], { as_of: null, states: [] })
+  mock({ rows: [], tree: { as_of: null, states: [] } })
   page()
   expect(await screen.findByText(/No reported prices for this selection yet/)).toBeInTheDocument()
   expect(screen.getByText(/No live prices have been loaded/)).toBeInTheDocument()
 })
 
-test('state, district and market pickers cascade and filter the request', async () => {
-  const urls = mock([ROW])
+test('state, district and market pickers cascade, filter the request, and can be cleared', async () => {
+  const urls = mock({ rows: [ROW] })
   const user = userEvent.setup()
   page()
-  await screen.findByText('Test Mandi 1')
+  await screen.findByText(/Test Mandi 1, Test State/)
   const state = screen.getByLabelText('State'), district = screen.getByLabelText('District'), market = screen.getByLabelText('Market')
   expect(district).toBeDisabled(); expect(market).toBeDisabled()
+  expect(screen.queryByRole('button', { name: 'Clear filters' })).not.toBeInTheDocument()
   await user.selectOptions(state, 'Test State')
   expect(district).toBeEnabled()
   await user.selectOptions(district, 'Test District A')
   await user.selectOptions(market, 'Test Mandi 1')
   await waitFor(() => expect(urls.some((u) => u.includes('state=Test+State') && u.includes('district=Test+District+A') && u.includes('market=Test+Mandi+1'))).toBe(true))
+  await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+  expect(state).toHaveValue(''); expect(market).toBeDisabled()
 })
 
-test('US state-level monthly prices: no district/market pickers, no empty Min/Max columns, month shown', async () => {
+test('prices with a modal show the range, the modal and a marker; the chart follows the modal history', async () => {
+  mock({ rows: [ROW], history: () => ({ ...HIST, points: [{ date: '2026-11-20', price: 2100, reports: 3 }, { date: '2026-11-26', price: 2200, reports: 3 }] }) })
+  page()
+  const line = await screen.findByRole('button', { name: /Local/ })
+  expect(within(line).getByText(/₹1,800 – ₹2,600/)).toBeInTheDocument()
+  expect(within(line).getByText(/Modal/)).toBeInTheDocument()
+  expect(await screen.findByText(/Up ₹100 since 2026-11-20/)).toBeInTheDocument()
+  expect(screen.getByText(/Daily average of reported modal prices/)).toBeInTheDocument()
+})
+
+test('US state-level monthly prices: one line per state, no district or market pickers, month shown', async () => {
   window.localStorage.setItem('agri.country', 'US')
   const US_ROW = { state: 'Test State One', district: '', market: 'State average', variety: '', grade: '', date: '2026-10-01', min: null, max: null, modal: 4.1,
     unit: 'bushel', currency: 'USD', period: 'monthly', source: 'nass', source_label: 'USDA NASS, prices received by farmers' }
-  mock([US_ROW], { as_of: '2026-10-01', states: [{ state: 'Test State One', districts: [{ district: '', markets: ['State average'] }] }] })
+  mock({ rows: [US_ROW], tree: { as_of: '2026-10-01', states: [{ state: 'Test State One', districts: [{ district: '', markets: ['State average'] }] }] } })
   page()
-  expect(await screen.findByText('State average')).toBeInTheDocument()
+  expect(await screen.findByRole('button', { name: /Test State One/ })).toHaveTextContent('$4.10')
   expect(screen.getByRole('option', { name: 'Corn' })).toBeInTheDocument() // US crops, so the US pack is active
-  expect(screen.getByText('2026-10')).toBeInTheDocument()
+  expect(screen.getByText(/Latest report: 2026-10$/)).toBeInTheDocument()
+  expect(screen.getByText('1 line at $4.10')).toBeInTheDocument()  // singular, and no pointless "$4.10 to $4.10" range
+  expect(screen.getByText('Showing 1 of 1 price line')).toBeInTheDocument()
   expect(screen.getByText(/USDA NASS/)).toBeInTheDocument()
   expect(screen.queryByLabelText('District')).not.toBeInTheDocument()
-  expect(screen.queryByRole('columnheader', { name: 'Min' })).not.toBeInTheDocument()
+  expect(screen.queryByLabelText('Market')).not.toBeInTheDocument()
+  expect(screen.queryByText(/Min \/ Max/)).not.toBeInTheDocument()
 })
 
-test('US terminal markets: package shown per row, low-high only, market picker works without districts', async () => {
+test('US terminal markets: lines grouped by package, low-high only, market picker works without districts', async () => {
   window.localStorage.setItem('agri.country', 'US')
-  const base = { state: 'Test State One', district: '', market: 'Test Terminal Market', variety: 'ROUND TYPE', date: '2026-11-23', modal: null, currency: 'USD', period: 'daily',
-    source: 'ams', source_label: 'USDA AMS Market News, terminal markets' }
-  const urls = mock([{ ...base, grade: 'large', min: 20, max: 24, unit: '25 lb cartons' }, { ...base, grade: 'large · organic', min: 30, max: 34, unit: '20 lb cartons' }],
-    { as_of: '2026-11-23', states: [{ state: 'Test State One', districts: [{ district: '', markets: ['Test Terminal Market'] }] }] })
+  const urls = mock({ rows: [{ ...TBASE, grade: 'large', min: 20, max: 24, unit: '25 lb cartons' }, { ...TBASE, grade: 'large · organic', min: 30, max: 34, unit: '20 lb cartons' }], tree: TERMINAL })
   const user = userEvent.setup()
   page()
-  expect(await screen.findAllByText('Test Terminal Market')).not.toHaveLength(0)
-  expect(screen.getByRole('columnheader', { name: 'Unit' })).toBeInTheDocument()
-  expect(screen.getByRole('cell', { name: '25 lb cartons' })).toBeInTheDocument()
-  expect(screen.getByRole('cell', { name: '20 lb cartons' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: '25 lb cartons' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '20 lb cartons' })).toBeInTheDocument()  // different packages never share a group or a scale
   expect(screen.getByText('large · organic')).toBeInTheDocument()
-  expect(screen.queryByRole('columnheader', { name: /Modal/ })).not.toBeInTheDocument()
-  expect(screen.getByText(/Prices are per the package shown in the Unit column/)).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /\$20 – \$24/ })).toBeInTheDocument()
+  expect(screen.queryByText(/Modal/)).not.toBeInTheDocument()
+  expect(screen.getByText(/Prices are per the package named above each group/)).toBeInTheDocument()
   expect(screen.getByText(/Min \/ Max = the lowest and highest price/)).toBeInTheDocument()
   expect(screen.queryByLabelText('District')).not.toBeInTheDocument()
   const market = screen.getByLabelText('Market')
@@ -96,77 +113,72 @@ test('US terminal markets: package shown per row, low-high only, market picker w
   await waitFor(() => expect(urls.some((u) => u.includes('market=Test+Terminal+Market'))).toBe(true))
 })
 
-test('long terminal-market lists: first 40 lines, filters, show-all, and an honest note when the server cut the list', async () => {
+test('long lists: each package shows its first 8 lines with a per-group expander, the variety filter works, and a server cut-off is disclosed', async () => {
   window.localStorage.setItem('agri.country', 'US')
-  const base = { state: 'Test State One', district: '', market: 'Test Terminal Market', date: '2026-11-23', modal: null, currency: 'USD', period: 'daily',
-    source: 'ams', source_label: 'USDA AMS Market News, terminal markets' }
-  const lines = Array.from({ length: 45 }, (_, i) => ({ ...base, variety: i % 2 ? 'VINE RIPES' : 'ROMA TYPE', grade: `size ${String(i).padStart(2, '0')}`, min: 10 + i, max: 12 + i, unit: i < 40 ? '25 lb cartons' : '10 lb cartons' }))
-  const urls: string[] = []
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-    urls.push(url)
-    const reply = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as Response
-    if (url === '/api/auth/me') return reply(401, {})
-    if (url === '/api/config') return reply(200, { googleClientId: null })
-    if (url.startsWith('/api/prices/locations')) return reply(200, { as_of: '2026-11-23', states: [{ state: 'Test State One', districts: [{ district: '', markets: ['Test Terminal Market'] }] }] })
-    if (url.startsWith('/api/prices/history')) return reply(200, { points: [] })
-    if (url.startsWith('/api/prices?')) return reply(200, { total: 60, items: lines })
-    return reply(404, {})
-  }))
+  const lines = Array.from({ length: 45 }, (_, i) => ({ ...TBASE, variety: i % 2 ? 'VINE RIPES' : 'ROMA TYPE', grade: `size ${String(i).padStart(2, '0')}`, min: 10 + i, max: 12 + i, unit: i < 40 ? '25 lb cartons' : '10 lb cartons' }))
+  mock({ rows: lines, total: 60, tree: TERMINAL })
   const user = userEvent.setup()
   page()
-  expect(await screen.findByText(/Showing 40 of 45 price lines/)).toBeInTheDocument()
+  const big = (await screen.findByRole('heading', { name: '25 lb cartons' })).closest('section') as HTMLElement
+  const small = screen.getByRole('heading', { name: '10 lb cartons' }).closest('section') as HTMLElement
+  expect(within(big).getAllByText(/^size \d\d$/)).toHaveLength(8)
+  expect(big).toHaveAccessibleName('25 lb cartons')  // the group is labelled by its heading
+  expect(within(small).getAllByText(/^size \d\d$/)).toHaveLength(5)  // a small group is shown whole
   expect(screen.getByText(/the source has 60 lines in total, only the first 45 were loaded/)).toBeInTheDocument()
-  await user.click(screen.getByRole('button', { name: 'Show all 45 price lines' }))
-  expect(await screen.findByText(/Showing 45 of 45 price lines/)).toBeInTheDocument()
-  await user.selectOptions(screen.getByLabelText('Unit'), '10 lb cartons')
-  expect(await screen.findByText(/Showing 5 of 5 price lines/)).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Show 32 more lines' }))
+  expect(within(big).getAllByText(/^size \d\d$/)).toHaveLength(40)
+  await user.click(screen.getByRole('button', { name: 'Show fewer lines' }))
+  expect(within(big).getAllByText(/^size \d\d$/)).toHaveLength(8)
+  await user.selectOptions(screen.getByLabelText('Variety'), 'ROMA TYPE')
+  expect(await screen.findByText(/Showing 23 of 23 price lines/)).toBeInTheDocument()
 })
 
-test('history for range-only prices asks for one package, then draws the midpoint chart with its basis explained', async () => {
+test('the chart follows the line you pick, never mixing packages, and states its basis and the change', async () => {
   window.localStorage.setItem('agri.country', 'US')
-  const base = { state: 'Test State One', district: '', market: 'Test Terminal Market', variety: 'ROUND TYPE', grade: '', date: '2026-11-23', modal: null, currency: 'USD', period: 'daily',
-    source: 'ams', source_label: 'USDA AMS Market News, terminal markets' }
-  const urls: string[] = []
-  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-    urls.push(url)
-    const reply = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as Response
-    if (url === '/api/auth/me') return reply(401, {})
-    if (url === '/api/config') return reply(200, { googleClientId: null })
-    if (url.startsWith('/api/prices/locations')) return reply(200, { as_of: '2026-11-23', states: [{ state: 'Test State One', districts: [{ district: '', markets: ['Test Terminal Market'] }] }] })
-    if (url.startsWith('/api/prices/history')) {
-      return url.includes('unit=') ? reply(200, { basis: 'midpoint', unit: '25 lb cartons', needs: null, points: [{ date: '2026-11-16', price: 22, reports: 2 }, { date: '2026-11-20', price: 24, reports: 1 }] })
-        : reply(200, { basis: 'midpoint', unit: null, needs: 'unit', points: [] })
-    }
-    if (url.startsWith('/api/prices?')) return reply(200, { total: 2, items: [{ ...base, min: 20, max: 24, unit: '25 lb cartons' }, { ...base, min: 9, max: 10, unit: '10 lb cartons' }] })
-    return reply(404, {})
-  }))
+  const urls = mock({
+    rows: [{ ...TBASE, min: 20, max: 24, unit: '25 lb cartons' }, { ...TBASE, min: 9, max: 10, unit: '10 lb cartons' }], tree: TERMINAL,
+    history: (url) => ({ basis: 'midpoint', needs: null, unit: new URL(url, 'http://x').searchParams.get('unit'), points: [{ date: '2026-11-16', price: 20, reports: 2 }, { date: '2026-11-20', price: 22, reports: 1 }] }),
+  })
   const user = userEvent.setup()
   page()
-  expect(await screen.findByText(/Pick one package in the Unit filter/)).toBeInTheDocument()
-  await user.selectOptions(screen.getByLabelText('Unit'), '25 lb cartons')
+  expect(await screen.findByText(/Midpoint of the reported low–high range, per 10 lb cartons/)).toBeInTheDocument()  // starts on the first line of the first group
+  expect(screen.getByText(/Up \$2 since 2026-11-16/)).toBeInTheDocument()
+  expect(screen.getByText(/10 lb cartons · 1 line$/)).toBeInTheDocument()  // the chart says how many price lines it covers
+  expect(urls.some((u) => u.startsWith('/api/prices/history') && u.includes('unit=10+lb+cartons') && u.includes('variety=ROUND+TYPE'))).toBe(true)
+  await user.click(screen.getByRole('button', { name: /\$20 – \$24/ }))
   expect(await screen.findByText(/Midpoint of the reported low–high range, per 25 lb cartons/)).toBeInTheDocument()
-  expect(screen.queryByText(/Pick one package/)).not.toBeInTheDocument()
-  expect(urls.some((u) => u.startsWith('/api/prices/history') && u.includes('unit=25+lb+cartons'))).toBe(true)
+  expect(screen.getByRole('button', { name: /\$20 – \$24/ })).toHaveAttribute('aria-pressed', 'true')
 })
 
 test('shows when prices were last checked, and warns when the data has gone stale', async () => {
-  const send = (checked: string) => {
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      const reply = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as Response
-      if (url === '/api/auth/me') return reply(401, {})
-      if (url === '/api/config') return reply(200, { googleClientId: null })
-      if (url.startsWith('/api/prices/locations')) return reply(200, TREE)
-      if (url.startsWith('/api/prices/history')) return reply(200, { points: [], basis: 'modal', unit: 'quintal', needs: null })
-      if (url.startsWith('/api/prices?')) return reply(200, { total: 1, checked_at: checked, items: [ROW] })
-      return reply(404, {})
-    }))
-  }
-  send(new Date().toISOString())
+  mock({ rows: [ROW], checked: new Date().toISOString() })
   const first = page()
   expect(await screen.findByText(/Last checked:/)).toBeInTheDocument()
   expect(screen.queryByText(/may not be running/)).not.toBeInTheDocument()
   first.unmount()
-  send(new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString())
+  mock({ rows: [ROW], checked: new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString() })
   page()
   expect(await screen.findByText(/automatic refresh may not be running/)).toBeInTheDocument()
+})
+
+test('a loading page announces itself instead of showing an empty screen', async () => {
+  vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})))
+  page()
+  expect(await screen.findByText('Loading prices')).toBeInTheDocument()
+})
+
+test('while the history loads the chart card shows a placeholder, never a wrong "not enough days" message', async () => {
+  vi.stubGlobal('fetch', vi.fn((url: string) => {
+    const reply = (status: number, body: unknown) => Promise.resolve({ ok: status < 400, status, json: async () => body } as Response)
+    if (url === '/api/auth/me') return reply(401, {})
+    if (url === '/api/config') return reply(200, { googleClientId: null })
+    if (url.startsWith('/api/prices/locations')) return reply(200, TREE)
+    if (url.startsWith('/api/prices/history')) return new Promise(() => {})  // never answers
+    if (url.startsWith('/api/prices?')) return reply(200, { total: 1, checked_at: null, items: [ROW] })
+    return reply(404, {})
+  }))
+  page()
+  await screen.findByRole('button', { name: /Local/ })
+  expect(screen.queryByText(/Not enough days of reports/)).not.toBeInTheDocument()
+  expect(screen.queryByText(/Daily average of reported modal prices/)).not.toBeInTheDocument()
 })

@@ -20,6 +20,8 @@
   --card: #ffffff;
   --border: #e5e7db;
   --muted: #4b5563;
+  --link: #15803d;
+  --warn: #b45309;
 }
 
 :root[data-theme="dark"] {
@@ -28,6 +30,8 @@
   --card: #16241c;
   --border: #25382c;
   --muted: #b5c2b0;
+  --link: #86efac;
+  --warn: #fbbf24;
 }
 
 body {
