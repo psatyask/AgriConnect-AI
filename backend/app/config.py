@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,6 +16,15 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:8000,http://localhost:5173"
     cookie_secure: bool = False
     session_days: int = 7
+
+    @field_validator("database_url")
+    @classmethod
+    def use_psycopg3_driver(cls, v: str) -> str:
+        """Accept plain postgresql:// or postgres:// URLs; this project uses the psycopg (v3) driver."""
+        for plain in ("postgresql://", "postgres://"):
+            if v.startswith(plain):
+                return "postgresql+psycopg://" + v[len(plain):]
+        return v
 
     @property
     def origins(self) -> list[str]:
