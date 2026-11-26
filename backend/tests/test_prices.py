@@ -213,5 +213,5 @@ def test_ams_import_command_reports_unmapped_products_and_rejects_nothing_silent
     monkeypatch.setattr(sys, "argv", ["ingest", "ams", "7"])
     ingest.run_ams()
     out = capsys.readouterr().out
-    assert "5 price rows stored, 5 unusable rows" in out and "1 rows for products the app does not map" in out
+    assert "5 price rows stored, 5 unusable rows" in out and "no package or unit (1)" in out and "no price (1)" in out and "1 rows for products the app does not map" in out
     assert "Onions, Green (1)" in out and "FAILED: Broken: MARS API returned HTTP 500" in out

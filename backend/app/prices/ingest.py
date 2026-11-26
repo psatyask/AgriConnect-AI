@@ -109,7 +109,9 @@ def run_ams() -> None:
     end, begin = date.today(), date.today() - timedelta(days=days)
     reports = ams.terminal_reports()
     print(f"{len(reports)} terminal market vegetable reports found; fetching {begin} to {end}")
-    stored = unusable = collisions = 0
+    stored = collisions = 0
+    unusable: Counter = Counter()
+    conflicts: list[tuple[PriceRecord, PriceRecord]] = []
     unmapped: Counter = Counter()
     failed: list[str] = []
     with SessionLocal() as db:
@@ -124,15 +126,28 @@ def run_ams() -> None:
             for raw in raws:
                 rec = ams.parse_record(raw)
                 if rec is None:
-                    unusable += 1
+                    unusable[ams.reject_reason(raw) or "unknown"] += 1
                 elif rec.commodity is None:
                     unmapped[rec.commodity_raw] += 1
                 else:
                     batch.append(rec)
-            collisions += len(batch) - len({tuple(getattr(r, k) for k in KEYS) for r in batch})
+            seen: dict[tuple, PriceRecord] = {}
+            for r in batch:
+                k = tuple(getattr(r, f) for f in KEYS)
+                if k in seen:
+                    collisions += 1
+                    if (seen[k].min_price, seen[k].max_price) != (r.min_price, r.max_price):
+                        conflicts.append((seen[k], r))
+                seen[k] = r
             stored += upsert(db, batch)
-    print(f"Done. {stored} price rows stored, {unusable} unusable rows (no price, package or market), "
-          f"{sum(unmapped.values())} rows for products the app does not map, {collisions} rows identical in every field to another (kept the last).")
+    print(f"Done. {stored} price rows stored, {sum(unusable.values())} unusable rows, "
+          f"{sum(unmapped.values())} rows for products the app does not map, {collisions} rows with the same market, product, package, description and day as another (kept the last).")
+    if unusable:
+        print("Unusable rows by reason:", ", ".join(f"{n} ({c})" for n, c in unusable.most_common()))
+    if collisions:
+        print(f"Of the repeated rows, {len(conflicts)} had DIFFERENT prices (one of each pair was overwritten).")
+        for a, b in conflicts[:3]:
+            print(f"  e.g. {a.market} | {a.commodity_raw} | {a.variety} | {a.grade} | {a.unit} | {a.obs_date}: {a.min_price}-{a.max_price} vs {b.min_price}-{b.max_price}")
     if unmapped:
         print("Most common unmapped products:", ", ".join(f"{n} ({c})" for n, c in unmapped.most_common(10)))
     for f in failed[:10]:

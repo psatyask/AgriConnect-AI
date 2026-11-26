@@ -93,21 +93,45 @@ def _price(v: object) -> Decimal | None:
     return d if d > 0 else None
 
 
-def parse_record(raw: dict) -> PriceRecord | None:
-    """One report row -> a price for one market, product, package and day, or None if it cannot be trusted."""
+def _read(raw: dict):
+    """-> (fields, None) when the row can be trusted, else (None, reason)."""
     try:
         obs = datetime.strptime(str(raw.get("report_date") or raw.get("report_begin_date")), "%m/%d/%Y").date()
     except ValueError:
-        return None
+        return None, "bad date"
     market, name = _clean(raw.get("market_location_name")), _clean(raw.get("commodity"))
     state = STATES.get(_clean(raw.get("market_location_state")).upper())
     unit = _clean(raw.get("package")) or _clean(raw.get("unit_sales"))  # a price without its package is meaningless
     low, high = _price(raw.get("low_price")), _price(raw.get("high_price"))
-    if not (market and name and state and unit) or (low is None and high is None) or (low and high and low > high):
+    if not (market and name):
+        return None, "no market or product"
+    if not state:
+        return None, "market not in a US state"
+    if not unit:
+        return None, "no package or unit"
+    if low is None and high is None:
+        return None, "no price"
+    if low and high and low > high:
+        return None, "low price above high price"
+    return (obs, market, name, state, unit, low, high), None
+
+
+def reject_reason(raw: dict) -> str | None:
+    return _read(raw)[1]
+
+
+def parse_record(raw: dict) -> PriceRecord | None:
+    """One report row -> a price for one market, product, package and day, or None if it cannot be trusted."""
+    fields, _ = _read(raw)
+    if fields is None:
         return None
+    obs, market, name, state, unit, low, high = fields
     origin = ", ".join(x for x in (_clean(raw.get("origin")), _clean(raw.get("district"))) if x)
     # Everything that distinguishes one reported line from another, so different lines never overwrite each other.
-    parts = [_clean(raw.get(k)) for k in ("grade", "item_size", "appearance", "quality", "condition", "crop", "environment", "storage", "repack")]
+    parts = [_clean(raw.get(k)) for k in ("grade", "item_size", "appearance", "quality", "condition", "crop", "environment", "storage", "repack",
+                                         "transportation_mode", "properties")]
+    sold_by = _clean(raw.get("unit_sales"))
+    parts += [f"sold {sold_by}"] if sold_by and sold_by != unit else []
     parts += ["organic"] if _clean(raw.get("organic")).upper() == "Y" else []
     parts += [f"from {origin}"] if origin else []
     return PriceRecord(
