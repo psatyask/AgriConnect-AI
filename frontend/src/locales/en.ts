@@ -150,6 +150,8 @@ const en = {
     historyPickUnit: "Pick one package in the Unit filter to see its price history. Prices per different packages are not averaged together.",
     historyPickVariety: "Pick one variety in the filter above to see its price history. Different varieties are not averaged together.",
     historyHintMid: "Midpoint of the reported low–high range, per {{unit}}, averaged over the price lines shown. Days with no report are left blank.",
+    checkedAt: "Last checked: {{when}}",
+    stale: "This data was last refreshed more than 2 days ago. The automatic refresh may not be running.",
     modalExplain: "Modal = the most common trading price on that day.",
     perPackage: "Prices are per the package shown in the Unit column.",
     unit: "Unit",

@@ -79,6 +79,7 @@ export function Marketplace() {
 
 export function Intelligence() {
   const { t } = useTranslation()
+  const { language } = useLanguage()
   const { region, money } = useMoney()
   const demo = getDemo(region.code)
   const [scope, setScope] = useState<Scope>({ commodity: region.commodities[0].id, state: '', district: '', market: '' })
@@ -93,6 +94,8 @@ export function Intelligence() {
   const hasMarkets = states.some((s) => s.districts.some((d) => d.markets.some((m) => m !== 'State average')))
   const all = latest.data?.items ?? []
   const total = latest.data?.total ?? all.length
+  const checkedAt = latest.data?.checked_at ? new Date(latest.data.checked_at) : null
+  const stale = checkedAt != null && Date.now() - checkedAt.getTime() > 48 * 3600 * 1000  // the automatic refresh should keep this well under a day
   const varieties = [...new Set(all.map((r) => r.variety).filter(Boolean))].sort()
   const packages = [...new Set(all.map((r) => r.unit))].sort()
   const vSel = varieties.includes(vf) ? vf : '', uSel = packages.includes(uf) ? uf : ''  // a filter from another crop quietly resets
@@ -129,7 +132,9 @@ export function Intelligence() {
       {hasLive && (
         <div className="grid gap-5 lg:grid-cols-2">
           <Card>
-            <p className="mb-2 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.asOf', { date: first.period === 'monthly' ? first.date.slice(0, 7) : first.date })} · {t('prices.source')}: {first.source_label}</p>
+            <p className="mb-2 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.asOf', { date: first.period === 'monthly' ? first.date.slice(0, 7) : first.date })} · {t('prices.source')}: {first.source_label}
+              {checkedAt && ` · ${t('prices.checkedAt', { when: checkedAt.toLocaleString(language.code, { dateStyle: 'medium', timeStyle: 'short' }) })}`}</p>
+            {stale && <p role="status" className="mb-2 text-sm font-semibold text-amber-700">{t('prices.stale')}</p>}
             {(varieties.length > 1 || packages.length > 1) && (
               <div className="mb-3 grid gap-3 sm:grid-cols-2">
                 {varieties.length > 1 && field(t('prices.variety'), vSel, setVf, varieties)}

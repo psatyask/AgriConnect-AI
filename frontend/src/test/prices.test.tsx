@@ -148,3 +148,25 @@ test('history for range-only prices asks for one package, then draws the midpoin
   expect(screen.queryByText(/Pick one package/)).not.toBeInTheDocument()
   expect(urls.some((u) => u.startsWith('/api/prices/history') && u.includes('unit=25+lb+cartons'))).toBe(true)
 })
+
+test('shows when prices were last checked, and warns when the data has gone stale', async () => {
+  const send = (checked: string) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const reply = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as Response
+      if (url === '/api/auth/me') return reply(401, {})
+      if (url === '/api/config') return reply(200, { googleClientId: null })
+      if (url.startsWith('/api/prices/locations')) return reply(200, TREE)
+      if (url.startsWith('/api/prices/history')) return reply(200, { points: [], basis: 'modal', unit: 'quintal', needs: null })
+      if (url.startsWith('/api/prices?')) return reply(200, { total: 1, checked_at: checked, items: [ROW] })
+      return reply(404, {})
+    }))
+  }
+  send(new Date().toISOString())
+  const first = page()
+  expect(await screen.findByText(/Last checked:/)).toBeInTheDocument()
+  expect(screen.queryByText(/may not be running/)).not.toBeInTheDocument()
+  first.unmount()
+  send(new Date(Date.now() - 4 * 24 * 3600 * 1000).toISOString())
+  page()
+  expect(await screen.findByText(/automatic refresh may not be running/)).toBeInTheDocument()
+})

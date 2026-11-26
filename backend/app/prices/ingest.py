@@ -5,6 +5,7 @@
     python -m app.prices.ingest probe-nass   # US: check the real USDA response format
     python -m app.prices.ingest nass         # US: load monthly state prices received (needs NASS_API_KEY)
     python -m app.prices.ingest ams [DAYS]   # US terminal market vegetable prices, last DAYS days (default 14); needs MARS_API_KEY
+    python -m app.prices.ingest refresh      # refresh every configured source now (the running app also does this itself, see PRICE_REFRESH_HOURS)
     python -m app.prices.ingest probe-ams [KEYWORD|REPORT_ID [BEGIN [END]]]   # US daily markets: list reports, or show one report's raw shape
     python -m app.prices.ingest csv FILE [--since 2019-01-01]   # load a downloaded Agmarknet CSV (data.gov.in or CEDA), no API needed
 """
@@ -103,9 +104,9 @@ def probe_ams(arg: str = "") -> None:
     print(f"{len(found)} reports match" + (" (showing 150; add another word to narrow)" if len(found) > 150 else ""))
 
 
-def run_ams() -> None:
+def run_ams(days: int | None = None) -> None:
     """US terminal market vegetable prices for the last N days (default 14). Needs MARS_API_KEY."""
-    days = int(sys.argv[2]) if len(sys.argv) > 2 else 14
+    days = days if days is not None else int(sys.argv[2]) if len(sys.argv) > 2 else 14
     end, begin = date.today(), date.today() - timedelta(days=days)
     reports = ams.terminal_reports()
     print(f"{len(reports)} terminal market vegetable reports found; fetching {begin} to {end}")
@@ -221,12 +222,16 @@ def migrate() -> None:
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    if cmd in ("run", "nass", "csv", "ams"):
+    if cmd in ("run", "nass", "csv", "ams", "refresh"):
         migrate()
     if cmd == "csv" and len(sys.argv) in (3, 5) and (len(sys.argv) == 3 or sys.argv[3] == "--since"):
         load_csv(sys.argv[2], date.fromisoformat(sys.argv[4]) if len(sys.argv) == 5 else None)
     elif cmd == "ams":
         run_ams()
+    elif cmd == "refresh":
+        from . import refresh
+        for src, msg in refresh.refresh_once(force=True).items():
+            print(f"{src}: {msg}")
     elif cmd == "probe-ams":
         probe_ams(sys.argv[2] if len(sys.argv) > 2 else "")
     elif cmd in ("run", "probe", "nass", "probe-nass"):

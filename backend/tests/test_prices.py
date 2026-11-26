@@ -70,8 +70,8 @@ def test_latest_returns_newest_row_per_market_with_source(client):
 
 def test_nothing_is_invented_for_unknown_places_or_countries(client):
     seed()
-    assert client.get("/api/prices?country=IN&commodity=tomato&market=Nowhere").json() == {"total": 0, "items": []}
-    assert client.get("/api/prices?country=US&commodity=corn").json() == {"total": 0, "items": []}
+    assert client.get("/api/prices?country=IN&commodity=tomato&market=Nowhere").json() == {"total": 0, "checked_at": None, "items": []}
+    assert client.get("/api/prices?country=US&commodity=corn").json() == {"total": 0, "checked_at": None, "items": []}
     assert client.get("/api/prices?country=india&commodity=tomato").status_code == 422
 
 
@@ -253,3 +253,53 @@ def test_history_of_range_only_prices_uses_the_midpoint_and_never_mixes_packages
     r = client.get(base + "&unit=25 lb cartons&variety=ROUND").json()
     assert r["needs"] is None and r["basis"] == "midpoint" and r["unit"] == "25 lb cartons"
     assert r["points"] == [{"date": "2026-11-16", "price": 27.0, "reports": 2}, {"date": "2026-11-20", "price": 24.0, "reports": 1}]  # (22+34)/2 and 24
+
+
+def test_refresh_runs_due_sources_skips_unconfigured_and_isolates_failures(client, monkeypatch):
+    from app.prices import refresh
+    calls = []
+
+    def ok():
+        calls.append("ok")
+
+    def boom():
+        raise RuntimeError("USDA down")
+    monkeypatch.setattr(refresh, "_sources", lambda: {"ams": (True, ok), "nass": (True, boom), "other": (False, ok)})
+    refresh._last_attempt.clear()
+    st = refresh.refresh_once()
+    assert st["ams"] == "refreshed" and st["other"] == "skipped: no API key"
+    assert st["nass"].startswith("failed: RuntimeError: USDA down")  # one broken source does not stop the others
+    assert refresh.refresh_once()["ams"] == "up to date"  # just attempted: not hit again within the hour
+    assert refresh.refresh_once(force=True)["ams"] == "refreshed" and calls == ["ok", "ok"]
+
+
+def test_refresh_is_due_only_when_the_stored_data_is_older_than_the_limit(client):
+    from sqlalchemy import text
+    from app.prices import ams, refresh
+    refresh._last_attempt.clear()
+    assert refresh.is_due("ams", 6)  # nothing loaded yet
+    with SessionLocal() as db:
+        upsert(db, [r for r in map(ams.parse_record, AMS_RAW) if r])
+    assert not refresh.is_due("ams", 6)  # fetched just now
+    with SessionLocal() as db:
+        db.execute(text("UPDATE price_observations SET fetched_at = now() - interval '10 hours' WHERE source = 'ams'"))
+        db.commit()
+    assert refresh.is_due("ams", 6) and not refresh.is_due("ams", 24)
+
+
+def test_refresh_does_not_run_twice_at_once_and_prices_report_when_they_were_checked(client, monkeypatch):
+    from sqlalchemy import text
+    from app.db import engine
+    from app.prices import ams, refresh
+    monkeypatch.setattr(refresh, "_sources", lambda: {"ams": (True, lambda: None)})
+    refresh._last_attempt.clear()
+    with engine.connect() as other:
+        other.execute(text("SELECT pg_advisory_lock(:k)"), {"k": refresh.LOCK_ID})
+        assert refresh.refresh_once(force=True) == {"all": "another process is refreshing"}
+        other.execute(text("SELECT pg_advisory_unlock(:k)"), {"k": refresh.LOCK_ID})
+    with SessionLocal() as db:
+        upsert(db, [r for r in map(ams.parse_record, AMS_RAW) if r and r.commodity == "tomato"])
+    from datetime import datetime
+    checked = client.get("/api/prices?country=US&commodity=tomato").json()["checked_at"]
+    assert checked and datetime.fromisoformat(checked).year >= 2026
+    assert client.get("/api/prices?country=US&commodity=corn").json()["checked_at"] is None

@@ -23,7 +23,7 @@ export const useLocations = (country: string, commodity: string) =>
 
 export const useLatestPrices = (country: string, s: Scope) =>
   useQuery({ queryKey: [country, 'prices', s], retry: false,
-    queryFn: () => api<{ items: PriceRow[]; total: number }>(`/api/prices?${qs(country, s)}&limit=500`) })
+    queryFn: () => api<{ items: PriceRow[]; total: number; checked_at: string | null }>(`/api/prices?${qs(country, s)}&limit=500`) })
 
 export interface History { points: { date: string; price: number; reports: number }[]; basis: 'modal' | 'midpoint'; unit: string | null; needs: 'unit' | 'variety' | null }
 

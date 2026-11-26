@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -9,8 +10,16 @@ from .auth import router as auth_router
 from .listings import router as listings_router
 from .price_api import router as prices_router
 from .config import ROOT, settings
+from .prices import refresh
 
-app = FastAPI(title="AgriConnect AI API", version="0.2.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    refresh.start_background()  # keeps prices current while the app runs (PRICE_REFRESH_HOURS, 0 = off)
+    yield
+
+
+app = FastAPI(title="AgriConnect AI API", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=settings.origins, allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH"], allow_headers=["Content-Type"],

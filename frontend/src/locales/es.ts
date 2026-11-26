@@ -152,6 +152,8 @@ const es: Messages = {
     historyPickUnit: "Elija un envase en el filtro Unidad para ver su historial de precios. Los precios de envases distintos no se promedian.",
     historyPickVariety: "Elija una variedad en el filtro de arriba para ver su historial de precios. Las variedades distintas no se promedian.",
     historyHintMid: "Punto medio del rango bajo–alto reportado, por {{unit}}, promediado sobre las líneas de precio mostradas. Los días sin reporte quedan en blanco.",
+    checkedAt: "Última comprobación: {{when}}",
+    stale: "Estos datos se actualizaron por última vez hace más de 2 días. Puede que la actualización automática no esté funcionando.",
     modalExplain: "Modal = el precio de operación más común ese día.",
     perPackage: "Los precios son por el envase que se muestra en la columna Unidad.",
     unit: "Unidad",

@@ -48,7 +48,8 @@ def latest(db: Db, country: Country, commodity: Crop, state: Place = None, distr
     ranked = base.subquery()  # works on every SQLAlchemy 2.x (no PostgreSQL-only DISTINCT ON helper)
     total = db.scalar(select(func.count()).select_from(ranked).where(ranked.c.rn == 1)) or 0  # so the page can say when it shows only part
     rows = db.execute(select(ranked).where(ranked.c.rn == 1).order_by(ranked.c.obs_date.desc(), ranked.c.market).limit(limit)).mappings().all()
-    return {"total": total, "items": [{
+    checked = max((r["fetched_at"] for r in rows), default=None)
+    return {"total": total, "checked_at": checked.isoformat() if checked else None, "items": [{
         "state": r["state"], "district": r["district"], "market": r["market"], "variety": r["variety"], "grade": r["grade"],
         "date": r["obs_date"].isoformat(), "min": float(r["min_price"]) if r["min_price"] is not None else None,
         "max": float(r["max_price"]) if r["max_price"] is not None else None, "modal": float(r["modal_price"]) if r["modal_price"] is not None else None,

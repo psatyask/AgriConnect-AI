@@ -47,6 +47,10 @@ USDA AMS Market News publishes daily wholesale prices at terminal markets (for e
 
 Prices are quoted per package (for example "25 lb cartons") as a low-high range. The app keeps the package as the unit and never converts or averages across packages, and it shows no modal price because USDA does not report one. Only products the app maps (tomatoes, dry onions) are stored; the import prints the others it skipped so the mapping can be extended.
 
+## Keeping prices current
+
+While the app is running (`python app.py`), it re-fetches each price source that has its API key in `.env` whenever that source's data is older than `PRICE_REFRESH_HOURS` (default 6; 0 turns it off). It checks every 30 minutes, never hits a source more than once an hour, and one failing source does not stop the others. The Market Intelligence page shows when prices were last checked and warns if they are more than two days old. The refresh only runs while the app is running; to refresh by hand, or from a scheduler such as Windows Task Scheduler or cron, run `python -m app.prices.ingest refresh` from `backend`. USDA publishes terminal market prices daily and farm prices monthly, so "current" means as fresh as USDA's own releases.
+
 ## Test
 
     cd frontend && npm test && npm run build

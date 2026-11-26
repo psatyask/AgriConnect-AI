@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     data_gov_in_api_key: str = ""
     nass_api_key: str = ""
     mars_api_key: str = ""
+    # While the app runs, re-fetch each configured price source when its data is older than this many hours. 0 turns it off.
+    price_refresh_hours: int = 6
     # data.gov.in resource id of the Agmarknet daily price dataset; confirm with `ingest probe`.
     agmarknet_resource_id: str = "9ef84268-d588-465a-a308-a864a43d0070"
 
