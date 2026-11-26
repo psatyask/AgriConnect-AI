@@ -2,6 +2,8 @@
 
 Auth is HTTP Basic with the API key as the username and an empty password. The key is never printed.
 """
+from urllib.parse import quote
+
 import requests
 
 from ..config import settings
@@ -33,6 +35,6 @@ def sample_report(slug_id: str, limit: int = 3):
     return data
 
 
-def report_rows(slug_id: str, begin: str):
-    """Rows for a report from a date (MM/DD/YYYY), as in USDA's examples: reports/<id>?q=report_begin_date=<date>."""
-    return _get(f"reports/{slug_id}", {"q": f"report_begin_date={begin}"})
+def report_rows(slug_id: str, begin: str, section: str = "Report Details"):
+    """One section of a report for a date (MM/DD/YYYY), as in USDA's examples: reports/<id>/<section>?q=report_begin_date=<date>."""
+    return _get(f"reports/{slug_id}/{quote(section)}", {"q": f"report_begin_date={begin}"})
