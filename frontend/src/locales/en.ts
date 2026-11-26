@@ -148,6 +148,9 @@ const en = {
     historyHintMonthly: "One point per month: the state average price received by farmers. Months with no report are left blank.",
     historyHint: "Daily average of reported modal prices. Days with no report are left blank.",
     modalExplain: "Modal = the most common trading price on that day.",
+    perPackage: "Prices are per the package shown in the Unit column.",
+    unit: "Unit",
+    rangeExplain: "Min / Max = the lowest and highest price reported that day.",
   },
   pages: {
     filters: 'Filters',

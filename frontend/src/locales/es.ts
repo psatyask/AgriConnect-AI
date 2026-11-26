@@ -150,6 +150,9 @@ const es: Messages = {
     historyHintMonthly: "Un punto por mes: el precio promedio estatal recibido por los agricultores. Los meses sin reporte quedan en blanco.",
     historyHint: "Promedio diario de los precios modales reportados. Los días sin reporte quedan en blanco.",
     modalExplain: "Modal = el precio de operación más común ese día.",
+    perPackage: "Los precios son por el envase que se muestra en la columna Unidad.",
+    unit: "Unidad",
+    rangeExplain: "Mín. / Máx. = el precio más bajo y más alto registrado ese día.",
   },
   pages: {
     filters: 'Filtros',

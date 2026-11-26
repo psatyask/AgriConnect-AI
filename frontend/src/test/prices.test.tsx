@@ -70,3 +70,28 @@ test('US state-level monthly prices: no district/market pickers, no empty Min/Ma
   expect(screen.queryByLabelText('District')).not.toBeInTheDocument()
   expect(screen.queryByRole('columnheader', { name: 'Min' })).not.toBeInTheDocument()
 })
+
+test('US terminal markets: package shown per row, low-high only, market picker works without districts', async () => {
+  window.localStorage.setItem('agri.country', 'US')
+  const base = { state: 'Test State One', district: '', market: 'Test Terminal Market', variety: 'ROUND TYPE', date: '2026-11-23', modal: null, currency: 'USD', period: 'daily',
+    source: 'ams', source_label: 'USDA AMS Market News, terminal markets' }
+  const urls = mock([{ ...base, grade: 'large', min: 20, max: 24, unit: '25 lb cartons' }, { ...base, grade: 'large · organic', min: 30, max: 34, unit: '20 lb cartons' }],
+    { as_of: '2026-11-23', states: [{ state: 'Test State One', districts: [{ district: '', markets: ['Test Terminal Market'] }] }] })
+  const user = userEvent.setup()
+  page()
+  expect(await screen.findAllByText('Test Terminal Market')).not.toHaveLength(0)
+  expect(screen.getByRole('columnheader', { name: 'Unit' })).toBeInTheDocument()
+  expect(screen.getByText('25 lb cartons')).toBeInTheDocument()
+  expect(screen.getByText('20 lb cartons')).toBeInTheDocument()
+  expect(screen.getByText('large · organic')).toBeInTheDocument()
+  expect(screen.queryByRole('columnheader', { name: /Modal/ })).not.toBeInTheDocument()
+  expect(screen.getByText(/Prices are per the package shown in the Unit column/)).toBeInTheDocument()
+  expect(screen.getByText(/Min \/ Max = the lowest and highest price/)).toBeInTheDocument()
+  expect(screen.queryByLabelText('District')).not.toBeInTheDocument()
+  const market = screen.getByLabelText('Market')
+  expect(market).toBeDisabled()
+  await user.selectOptions(screen.getByLabelText('State'), 'Test State One')
+  expect(market).toBeEnabled()
+  await user.selectOptions(market, 'Test Terminal Market')
+  await waitFor(() => expect(urls.some((u) => u.includes('market=Test+Terminal+Market'))).toBe(true))
+})

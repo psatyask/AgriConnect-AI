@@ -103,7 +103,7 @@ class PriceObservation(Base):
 
     __tablename__ = "price_observations"
     __table_args__ = (
-        UniqueConstraint("source", "state", "district", "market", "commodity_raw", "variety", "grade", "obs_date", name="uq_price_observation"),
+        UniqueConstraint("source", "state", "district", "market", "commodity_raw", "variety", "grade", "obs_date", "unit", name="uq_price_observation"),
         Index("ix_price_lookup", "country", "commodity", "state", "district", "market", "obs_date"),
     )
 
@@ -115,13 +115,13 @@ class PriceObservation(Base):
     market: Mapped[str] = mapped_column(String(200))
     commodity_raw: Mapped[str] = mapped_column(String(100))
     commodity: Mapped[str | None] = mapped_column(String(40), nullable=True)
-    variety: Mapped[str] = mapped_column(String(100), default="")
-    grade: Mapped[str] = mapped_column(String(40), default="")
+    variety: Mapped[str] = mapped_column(String(200), default="")
+    grade: Mapped[str] = mapped_column(String(200), default="")
     obs_date: Mapped[date] = mapped_column(Date)
     min_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     max_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     modal_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
-    unit: Mapped[str] = mapped_column(String(20))
+    unit: Mapped[str] = mapped_column(String(100))
     currency: Mapped[str] = mapped_column(String(3))
     period: Mapped[str] = mapped_column(String(10), default="daily", server_default="daily")
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

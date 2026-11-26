@@ -4,7 +4,8 @@
     python -m app.prices.ingest run          # fetch all mapped crops and upsert
     python -m app.prices.ingest probe-nass   # US: check the real USDA response format
     python -m app.prices.ingest nass         # US: load monthly state prices received (needs NASS_API_KEY)
-    python -m app.prices.ingest probe-ams [KEYWORD|REPORT_ID]   # US daily markets: list reports, or show one report's raw shape
+    python -m app.prices.ingest ams [DAYS]   # US terminal market vegetable prices, last DAYS days (default 14); needs MARS_API_KEY
+    python -m app.prices.ingest probe-ams [KEYWORD|REPORT_ID [BEGIN [END]]]   # US daily markets: list reports, or show one report's raw shape
     python -m app.prices.ingest csv FILE [--since 2019-01-01]   # load a downloaded Agmarknet CSV (data.gov.in or CEDA), no API needed
 """
 import csv
@@ -24,7 +25,7 @@ import json
 from . import agmarknet, ams, nass
 from .base import PriceRecord
 
-KEYS = ["source", "state", "district", "market", "commodity_raw", "variety", "grade", "obs_date"]
+KEYS = ["source", "state", "district", "market", "commodity_raw", "variety", "grade", "obs_date", "unit"]
 
 
 def upsert(db: Session, records: list[PriceRecord]) -> int:
@@ -87,15 +88,57 @@ def probe_ams(arg: str = "") -> None:
         print(f"--- A) report description (saved to ams_{arg}.json) ---")
         _outline(data)
         begin = sys.argv[3] if len(sys.argv) > 3 else (date.today() - timedelta(days=3)).strftime("%m/%d/%Y")
-        rows = ams.report_rows(arg, begin)
+        end = sys.argv[4] if len(sys.argv) > 4 else None
+        rows = ams.report_rows(arg, begin, end)
         Path(f"ams_{arg}_rows.json").write_text(json.dumps(rows, indent=1, default=str))
-        print(f"--- B) Report Details (the prices) from {begin} (saved to ams_{arg}_rows.json) ---")
+        print(f"--- B) Report Details (the prices) {begin}{' to ' + end if end else ''} (saved to ams_{arg}_rows.json) ---")
         _outline(rows)
+        found = ams.rows_of(rows)
+        print(f"{len(found)} rows; report dates: {sorted({r.get('report_date') for r in found})}")
+        print("sample parsed:", ams.parse_record(found[0]) if found else None)
         return
     found = ams.list_reports(arg)
     for r in found[:150]:
         print(r.get("slug_id"), "|", r.get("report_title"), "|", r.get("report_date"))
     print(f"{len(found)} reports match" + (" (showing 150; add another word to narrow)" if len(found) > 150 else ""))
+
+
+def run_ams() -> None:
+    """US terminal market vegetable prices for the last N days (default 14). Needs MARS_API_KEY."""
+    days = int(sys.argv[2]) if len(sys.argv) > 2 else 14
+    end, begin = date.today(), date.today() - timedelta(days=days)
+    reports = ams.terminal_reports()
+    print(f"{len(reports)} terminal market vegetable reports found; fetching {begin} to {end}")
+    stored = unusable = collisions = 0
+    unmapped: Counter = Counter()
+    failed: list[str] = []
+    with SessionLocal() as db:
+        for rep in reports:
+            title = str(rep.get("report_title", rep.get("slug_id")))
+            try:
+                raws = ams.fetch_report_rows(str(rep["slug_id"]), begin.strftime("%m/%d/%Y"), end.strftime("%m/%d/%Y"))
+            except RuntimeError as exc:
+                failed.append(f"{title}: {exc}")
+                continue
+            batch: list[PriceRecord] = []
+            for raw in raws:
+                rec = ams.parse_record(raw)
+                if rec is None:
+                    unusable += 1
+                elif rec.commodity is None:
+                    unmapped[rec.commodity_raw] += 1
+                else:
+                    batch.append(rec)
+            collisions += len(batch) - len({tuple(getattr(r, k) for k in KEYS) for r in batch})
+            stored += upsert(db, batch)
+    print(f"Done. {stored} price rows stored, {unusable} unusable rows (no price, package or market), "
+          f"{sum(unmapped.values())} rows for products the app does not map, {collisions} rows identical in every field to another (kept the last).")
+    if unmapped:
+        print("Most common unmapped products:", ", ".join(f"{n} ({c})" for n, c in unmapped.most_common(10)))
+    for f in failed[:10]:
+        print("FAILED:", f)
+    if stored == 0:
+        print("Nothing stored. Run: python -m app.prices.ingest probe-ams <report id> to check the format.")
 
 
 def run() -> None:
@@ -163,10 +206,12 @@ def migrate() -> None:
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    if cmd in ("run", "nass", "csv"):
+    if cmd in ("run", "nass", "csv", "ams"):
         migrate()
     if cmd == "csv" and len(sys.argv) in (3, 5) and (len(sys.argv) == 3 or sys.argv[3] == "--since"):
         load_csv(sys.argv[2], date.fromisoformat(sys.argv[4]) if len(sys.argv) == 5 else None)
+    elif cmd == "ams":
+        run_ams()
     elif cmd == "probe-ams":
         probe_ams(sys.argv[2] if len(sys.argv) > 2 else "")
     elif cmd in ("run", "probe", "nass", "probe-nass"):

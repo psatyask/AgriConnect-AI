@@ -14,7 +14,8 @@ Country = Annotated[str, Query(pattern=r"^[A-Z]{2}$")]
 Crop = Annotated[str, Query(pattern=r"^[a-z][a-z0-9_]{1,39}$")]
 Place = Annotated[str | None, Query(max_length=200)]
 
-SOURCES = {"agmarknet": "Agmarknet (Government of India)", "nass": "USDA NASS, prices received by farmers"}
+SOURCES = {"agmarknet": "Agmarknet (Government of India)", "nass": "USDA NASS, prices received by farmers",
+           "ams": "USDA AMS Market News, terminal markets"}
 
 
 def _scope(stmt, country: str, commodity: str, state: str | None, district: str | None, market: str | None):
@@ -41,9 +42,9 @@ def locations(db: Db, country: Country, commodity: Crop) -> dict:
 @router.get("")
 def latest(db: Db, country: Country, commodity: Crop, state: Place = None, district: Place = None, market: Place = None,
            limit: Annotated[int, Query(ge=1, le=200)] = 50) -> dict:
-    """The most recent reported price for each market/variety/grade in scope. Nothing is estimated."""
+    """The most recent reported price for each market/variety/grade/package in scope. Nothing is estimated."""
     base = _scope(select(P, func.row_number().over(
-        partition_by=(P.market, P.variety, P.grade), order_by=P.obs_date.desc()).label("rn")), country, commodity, state, district, market)
+        partition_by=(P.market, P.variety, P.grade, P.unit), order_by=P.obs_date.desc()).label("rn")), country, commodity, state, district, market)
     ranked = base.subquery()  # works on every SQLAlchemy 2.x (no PostgreSQL-only DISTINCT ON helper)
     rows = db.execute(select(ranked).where(ranked.c.rn == 1).order_by(ranked.c.obs_date.desc(), ranked.c.market).limit(limit)).mappings().all()
     return {"items": [{

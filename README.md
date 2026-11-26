@@ -39,6 +39,14 @@ USDA publishes farm prices per state (monthly), not per county or city, so the U
     python -m app.prices.ingest probe-nass     # check the real response format once
     python -m app.prices.ingest nass           # load monthly state prices (corn, soybeans, wheat)
 
+### Daily terminal market prices (tomatoes, onions)
+
+USDA AMS Market News publishes daily wholesale prices at terminal markets (for example Asheville, NC). Register free at https://mymarketnews.ams.usda.gov, copy the key from My Profile into `.env` as `MARS_API_KEY`, then:
+
+    python -m app.prices.ingest ams            # last 14 days (or: ams 30)
+
+Prices are quoted per package (for example "25 lb cartons") as a low-high range. The app keeps the package as the unit and never converts or averages across packages, and it shows no modal price because USDA does not report one. Only products the app maps (tomatoes, dry onions) are stored; the import prints the others it skipped so the mapping can be extended.
+
 ## Test
 
     cd frontend && npm test && npm run build

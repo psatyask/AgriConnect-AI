@@ -1,3 +1,4 @@
+import sys
 import json
 from datetime import date
 from pathlib import Path
@@ -169,3 +170,48 @@ def test_ceda_bulk_format_with_since_filter(client, capsys):
     loc = client.get("/api/prices/locations?country=IN&commodity=chilli").json()
     assert loc["as_of"] == "2021-12-30" and loc["states"][0]["state"] == "Test State"
     assert client.get("/api/prices?country=IN&commodity=tomato").json()["items"][0]["modal"] == 2200
+
+
+AMS_RAW = json.loads((Path(__file__).parent / "fixtures" / "ams_format_sample.json").read_text())["results"]
+
+
+def test_ams_parser_keeps_package_as_the_unit_and_never_invents_a_modal():
+    from app.prices import ams
+    recs = [r for r in map(ams.parse_record, AMS_RAW) if r]
+    # kept: 3 tomato lines, 2 dry-onion days, 1 green-onion line (unmapped). Dropped: no package, no price, low>high, bad date, unknown state.
+    assert len(recs) == 6
+    t = recs[0]
+    assert (t.commodity, t.state, t.market, t.unit, t.currency) == ("tomato", "North Carolina", "Test Terminal Market", "25 lb cartons", "USD")
+    assert (t.min_price, t.max_price, t.modal_price) == (20, 24, None)  # the "mostly" range is not a modal price
+    assert t.grade == "US No. 1 · large · from Mexico, SINALOA"
+    assert next(r for r in recs if r.commodity_raw == "Onions, Green").commodity is None  # never merged with dry onions
+
+
+def test_ams_lines_that_differ_only_by_package_or_organic_are_kept_apart(client):
+    from app.prices import ams
+    recs = [r for r in map(ams.parse_record, AMS_RAW) if r and r.commodity == "tomato"]
+    with SessionLocal() as db:
+        upsert(db, recs)
+        upsert(db, recs)
+        assert db.query(PriceObservation).count() == 3  # 25 lb, 20 lb and organic stay separate; re-run adds nothing
+    items = client.get("/api/prices?country=US&commodity=tomato").json()["items"]
+    assert sorted((i["unit"], i["min"], i["modal"]) for i in items) == [("20 lb cartons", 17, None), ("25 lb cartons", 20, None), ("25 lb cartons", 30, None)]
+    loc = client.get("/api/prices/locations?country=US&commodity=tomato").json()
+    assert loc["states"] == [{"state": "North Carolina", "districts": [{"district": "", "markets": ["Test Terminal Market"]}]}]
+    assert items[0]["source_label"] == "USDA AMS Market News, terminal markets"
+
+
+def test_ams_import_command_reports_unmapped_products_and_rejects_nothing_silently(client, monkeypatch, capsys):
+    from app.prices import ams, ingest
+    monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Test Terminal Market Vegetables Prices"}, {"slug_id": 2, "report_title": "Broken"}])
+
+    def fake(slug, begin, end):
+        if slug == "2":
+            raise RuntimeError("MARS API returned HTTP 500 for reports/2/Report%20Details")
+        return AMS_RAW
+    monkeypatch.setattr(ams, "fetch_report_rows", fake)
+    monkeypatch.setattr(sys, "argv", ["ingest", "ams", "7"])
+    ingest.run_ams()
+    out = capsys.readouterr().out
+    assert "5 price rows stored, 5 unusable rows" in out and "1 rows for products the app does not map" in out
+    assert "Onions, Green (1)" in out and "FAILED: Broken: MARS API returned HTTP 500" in out
