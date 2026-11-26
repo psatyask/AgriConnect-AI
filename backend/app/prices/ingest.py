@@ -4,6 +4,7 @@
     python -m app.prices.ingest run          # fetch all mapped crops and upsert
     python -m app.prices.ingest probe-nass   # US: check the real USDA response format
     python -m app.prices.ingest nass         # US: load monthly state prices received (needs NASS_API_KEY)
+    python -m app.prices.ingest probe-ams [KEYWORD|REPORT_ID]   # US daily markets: list reports, or show one report's raw shape
     python -m app.prices.ingest csv FILE [--since 2019-01-01]   # load a downloaded Agmarknet CSV (data.gov.in or CEDA), no API needed
 """
 import csv
@@ -18,7 +19,9 @@ from sqlalchemy.orm import Session
 
 from ..db import SessionLocal
 from ..models import PriceObservation, utcnow
-from . import agmarknet, nass
+import json
+
+from . import agmarknet, ams, nass
 from .base import PriceRecord
 
 KEYS = ["source", "state", "district", "market", "commodity_raw", "variety", "grade", "obs_date"]
@@ -60,6 +63,14 @@ def probe_nass() -> None:
         print("parsed:", nass.parse_record(raw))
         return
     print("NASS returned no rows.")
+
+
+def probe_ams(arg: str = "") -> None:
+    if arg.isdigit():
+        print(json.dumps(ams.sample_report(arg), indent=1, default=str)[:6000])
+        return
+    for r in ams.list_reports(arg)[:40]:
+        print({k: r[k] for k in list(r)[:6]})
 
 
 def run() -> None:
@@ -131,6 +142,8 @@ if __name__ == "__main__":
         migrate()
     if cmd == "csv" and len(sys.argv) in (3, 5) and (len(sys.argv) == 3 or sys.argv[3] == "--since"):
         load_csv(sys.argv[2], date.fromisoformat(sys.argv[4]) if len(sys.argv) == 5 else None)
+    elif cmd == "probe-ams":
+        probe_ams(sys.argv[2] if len(sys.argv) > 2 else "")
     elif cmd in ("run", "probe", "nass", "probe-nass"):
         {"run": run, "probe": probe, "nass": run_nass, "probe-nass": probe_nass}[cmd]()
     else:
