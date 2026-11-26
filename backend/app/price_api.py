@@ -3,7 +3,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
-from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session
 
 from .db import get_db
@@ -43,9 +42,10 @@ def locations(db: Db, country: Country, commodity: Crop) -> dict:
 def latest(db: Db, country: Country, commodity: Crop, state: Place = None, district: Place = None, market: Place = None,
            limit: Annotated[int, Query(ge=1, le=200)] = 50) -> dict:
     """The most recent reported price for each market/variety/grade in scope. Nothing is estimated."""
-    base = _scope(select(P), country, commodity, state, district, market)
-    newest = base.ext(distinct_on(P.market, P.variety, P.grade)).order_by(P.market, P.variety, P.grade, P.obs_date.desc()).subquery()
-    rows = db.execute(select(newest).order_by(newest.c.obs_date.desc(), newest.c.market).limit(limit)).mappings().all()
+    base = _scope(select(P, func.row_number().over(
+        partition_by=(P.market, P.variety, P.grade), order_by=P.obs_date.desc()).label("rn")), country, commodity, state, district, market)
+    ranked = base.subquery()  # works on every SQLAlchemy 2.x (no PostgreSQL-only DISTINCT ON helper)
+    rows = db.execute(select(ranked).where(ranked.c.rn == 1).order_by(ranked.c.obs_date.desc(), ranked.c.market).limit(limit)).mappings().all()
     return {"items": [{
         "state": r["state"], "district": r["district"], "market": r["market"], "variety": r["variety"], "grade": r["grade"],
         "date": r["obs_date"].isoformat(), "min": float(r["min_price"]) if r["min_price"] is not None else None,
