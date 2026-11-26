@@ -126,3 +126,10 @@ def test_google_unreachable_is_503_not_a_crash(client, monkeypatch):
 def test_config_exposes_client_id_only(client):
     body = client.get("/api/config").json()
     assert body == {"googleClientId": "test-client-id.apps.googleusercontent.com"}
+
+
+def test_plain_postgres_url_is_upgraded_to_psycopg3():
+    from app.config import Settings
+    assert Settings(database_url="postgresql://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"
+    assert Settings(database_url="postgres://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"
+    assert Settings(database_url="postgresql+psycopg://u:p@h/db").database_url == "postgresql+psycopg://u:p@h/db"

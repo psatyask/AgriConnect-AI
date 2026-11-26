@@ -9,7 +9,8 @@ services:
       POSTGRES_PASSWORD: agri_dev_pw
       POSTGRES_DB: agriconnect
     ports:
-      - "5432:5432"
+      # Host port is configurable (DB_PORT in .env) in case Postgres is already installed on this machine.
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - agri_pgdata:/var/lib/postgresql/data
     healthcheck:
