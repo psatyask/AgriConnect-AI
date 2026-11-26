@@ -2,7 +2,7 @@
 
 Auth is HTTP Basic with the API key as the username and an empty password. The key is never printed.
 """
-import httpx
+import requests
 
 from ..config import settings
 
@@ -13,12 +13,11 @@ def _get(path: str, params: dict | None = None):
     if not settings.mars_api_key:
         raise RuntimeError("MARS_API_KEY is not set in .env")
     try:
-        r = httpx.get(f"{BASE}/{path}", params=params, auth=(settings.mars_api_key, ""), timeout=60)
-        r.raise_for_status()
-    except httpx.HTTPStatusError as e:
-        raise RuntimeError(f"MARS API returned HTTP {e.response.status_code} for {path}") from None
-    except httpx.HTTPError as e:
+        r = requests.get(f"{BASE}/{path}", params=params, auth=(settings.mars_api_key, ""), timeout=60)
+    except requests.RequestException as e:
         raise RuntimeError(f"Could not reach the MARS API ({type(e).__name__})") from None
+    if r.status_code != 200:
+        raise RuntimeError(f"MARS API returned HTTP {r.status_code} for {path}")
     return r.json()
 
 
