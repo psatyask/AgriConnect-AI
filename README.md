@@ -4,19 +4,27 @@ Growing Locally. Connecting Globally.
 
 An agricultural marketplace with regional market intelligence, price forecasting and AI decision support. Supports India and the United States, built so more countries can be added as modular country packs.
 
-**Status: Phase 1 (frontend foundation). All market data, news, listings and forecasts are clearly labeled DEMO content.** No backend yet.
+**Status: Phase 2 started (backend + sign-in). All market data, news, listings and forecasts are still clearly labeled DEMO content.**
 
 ## Run it
 
-Requires Node.js 20+ and Python 3.
+Requires Node.js 20+, Python 3.11+ and Docker Desktop.
 
-    python app.py
+1. Copy `.env.example` to `.env` and set `GOOGLE_OAUTH_CLIENT_ID` (see "Google sign-in" below). Never commit `.env`.
+2. Start the database: `docker compose up -d db`
+3. Install backend packages once: `pip install -r backend/requirements.txt`
+4. Run: `python app.py`
 
-This installs dependencies, builds the frontend, serves it at http://127.0.0.1:8000 and opens your browser. For development with hot reload: `cd frontend && npm install && npm run dev`.
+This builds the frontend when sources changed, applies database migrations, and serves the site and API at http://localhost:8000. `python app.py --frontend-only` serves just the static site (no login). For frontend hot reload run `python app.py` in one terminal and `cd frontend && npm run dev` in another (Vite proxies `/api`).
+
+## Google sign-in
+
+Google Cloud Console > Google Auth Platform: create an External app, then Clients > Web application with Authorized JavaScript origins `http://localhost:8000` and `http://localhost:5173`; add test users while in Testing mode. The browser gets a Google ID token; the backend verifies it with Google's library, keys the account on Google's `sub`, and issues its own httpOnly session cookie. Roles (farmer/buyer) are stored in the database and enforced on the server; `admin` can only be granted directly in the database. Email/password (argon2) is the fallback.
 
 ## Test
 
     cd frontend && npm test && npm run build
+    cd backend && python -m pytest        # needs the Docker database; wipes its tables, use a test database
 
 ## What works in Phase 1
 - Country selector (India, US) driven by a registry of country packs (`frontend/src/regions/`)

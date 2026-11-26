@@ -4,7 +4,7 @@ import NewsTicker from './components/NewsTicker'
 import Home from './pages/Home'
 import { Forecasting, Intelligence, Marketplace } from './pages/Market'
 import { Assistant, Knowledge } from './pages/Assistant'
-import { BuyerDashboard, FarmerDashboard, Login } from './pages/Account'
+import { BuyerArea, FarmerArea, Login } from './pages/Account'
 
 export default function App() {
   return (
@@ -19,8 +19,8 @@ export default function App() {
         <Route path="/assistant" element={<Assistant />} />
         <Route path="/knowledge" element={<Knowledge />} />
         <Route path="/login" element={<Login />} />
-        <Route path="/dashboard/farmer" element={<FarmerDashboard />} />
-        <Route path="/dashboard/buyer" element={<BuyerDashboard />} />
+        <Route path="/dashboard/farmer" element={<FarmerArea />} />
+        <Route path="/dashboard/buyer" element={<BuyerArea />} />
         <Route path="*" element={<Home />} />
       </Routes>
     </BrowserRouter>

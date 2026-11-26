@@ -5,6 +5,8 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // `npm run dev`: forward API calls to the FastAPI backend so cookies stay same-origin.
+  server: { proxy: { '/api': 'http://localhost:8000' } },
   test: {
     environment: 'jsdom',
     globals: true,
