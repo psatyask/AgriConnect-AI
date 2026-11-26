@@ -2,15 +2,18 @@ import { useId, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { PriceRow } from '../api/prices'
 
-export interface Group { unit: string; rows: PriceRow[]; lo: number; hi: number; latest: string }
+/** A price line; `srcUnit` is the package it was reported in when its price has been converted to a common unit. */
+export type LedgerRow = PriceRow & { srcUnit?: string }
+export interface Group { unit: string; rows: LedgerRow[]; lo: number; hi: number; latest: string }
+const srcOf = (r: LedgerRow) => r.srcUnit ?? r.unit
 export interface Line { variety: string; unit: string }
 
 const VISIBLE = 8
-const valuesOf = (r: PriceRow) => [r.min, r.max, r.modal].filter((v): v is number => v != null)
+const valuesOf = (r: LedgerRow) => [r.min, r.max, r.modal].filter((v): v is number => v != null)
 
 /** Price lines grouped by the package they are quoted per: prices in different packages are never put on one scale. */
-export function groupRows(rows: PriceRow[]): Group[] {
-  const by = new Map<string, PriceRow[]>()
+export function groupRows(rows: LedgerRow[]): Group[] {
+  const by = new Map<string, LedgerRow[]>()
   for (const r of rows) by.set(r.unit, [...(by.get(r.unit) ?? []), r])
   return [...by.entries()].map(([unit, list]) => {
     const vals = list.flatMap(valuesOf)
@@ -19,7 +22,7 @@ export function groupRows(rows: PriceRow[]): Group[] {
   }).sort((a, b) => b.rows.length - a.rows.length || a.unit.localeCompare(b.unit))
 }
 
-function RangeBar({ row, lo, hi }: { row: PriceRow; lo: number; hi: number }) {
+function RangeBar({ row, lo, hi }: { row: LedgerRow; lo: number; hi: number }) {
   if (hi === lo) return null  // one price, or all the same: a bar on a one-point scale says nothing
   const span = hi - lo
   const pct = (v: number) => Math.min(100, Math.max(0, ((v - lo) / span) * 100))
@@ -41,13 +44,15 @@ interface Props {
   money: (n: number) => string
   unitLabel: (u: string) => string
   showMarket: boolean
+  /** The common unit prices were converted to, if any: groups in other units get a note that they could not be. */
+  convertedTo?: string
 }
 
-export default function PriceLedger({ groups, selected, onSelect, money, unitLabel, showMarket }: Props) {
+export default function PriceLedger({ groups, selected, onSelect, money, unitLabel, showMarket, convertedTo }: Props) {
   const { t } = useTranslation()
   const [open, setOpen] = useState<Set<string>>(new Set())
   const uid = useId()
-  const priceText = (r: PriceRow) => {
+  const priceText = (r: LedgerRow) => {
     if (r.min != null && r.max != null) return r.min === r.max ? money(r.min) : `${money(r.min)} – ${money(r.max)}`
     const one = r.min ?? r.max ?? r.modal
     return one != null ? money(one) : '—'
@@ -60,15 +65,16 @@ export default function PriceLedger({ groups, selected, onSelect, money, unitLab
         return (
           <section key={g.unit} aria-labelledby={`${uid}-g${gi}`}>
             <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-4 border-b pb-2" style={{ borderColor: 'var(--border)' }}>
-              <h3 id={`${uid}-g${gi}`} className="font-display text-base font-extrabold">{unitLabel(g.unit)}</h3>
+              <h3 id={`${uid}-g${gi}`} className="font-display text-base font-extrabold">{g.unit === convertedTo ? t('prices.perBase', { unit: unitLabel(g.unit) }) : unitLabel(g.unit)}</h3>
               <p className="text-xs tabular-nums" style={{ color: 'var(--muted)' }}>{g.lo === g.hi ? t('prices.groupSame', { count: g.rows.length, lo: money(g.lo) }) : t('prices.groupSummary', { count: g.rows.length, lo: money(g.lo), hi: money(g.hi) })}</p>
             </div>
+            {convertedTo && g.unit !== convertedTo && <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>{t('prices.noWeight', { unit: unitLabel(convertedTo) })}</p>}
             <ul className="flex flex-col">
               {list.map((r) => {
-                const on = selected?.variety === r.variety && selected.unit === r.unit
+                const on = selected?.variety === r.variety && selected.unit === srcOf(r)
                 return (
-                  <li key={`${r.market}-${r.variety}-${r.grade}-${r.unit}`}>
-                    <button type="button" aria-pressed={on} onClick={() => onSelect({ variety: r.variety, unit: r.unit })}
+                  <li key={`${r.market}-${r.variety}-${r.grade}-${srcOf(r)}`}>
+                    <button type="button" aria-pressed={on} onClick={() => onSelect({ variety: r.variety, unit: srcOf(r) })}
                       className="grid w-full grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1.5 rounded-lg border-l-4 px-3 py-2.5 text-left hover:bg-brand/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand sm:grid-cols-[minmax(0,1fr)_6rem_8.5rem]"
                       style={{ borderColor: on ? 'var(--color-brand)' : 'transparent', background: on ? 'color-mix(in srgb, var(--color-brand) 9%, transparent)' : undefined }}>
                       <span className="min-w-0">

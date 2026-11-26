@@ -10,7 +10,7 @@ const ROW = { state: 'Test State', district: 'Test District A', market: 'Test Ma
   min: 1800, max: 2600, modal: 2200, unit: 'quintal', currency: 'INR', period: 'daily', source: 'agmarknet', source_label: 'Agmarknet (Government of India)' }
 const HIST = { basis: 'modal', unit: 'quintal', needs: null, points: [] }
 const TERMINAL = { as_of: '2026-11-23', states: [{ state: 'Test State One', districts: [{ district: '', markets: ['Test Terminal Market'] }] }] }
-const TBASE = { state: 'Test State One', district: '', market: 'Test Terminal Market', variety: 'ROUND TYPE', date: '2026-11-23', modal: null, currency: 'USD', period: 'daily',
+const TBASE = { state: 'Test State One', district: '', market: 'Test Terminal Market', variety: 'ROUND TYPE', grade: '', date: '2026-11-23', modal: null, currency: 'USD', period: 'daily',
   source: 'ams', source_label: 'USDA AMS Market News, terminal markets' }
 
 interface Mock { rows: unknown[]; tree?: unknown; total?: number; checked?: string | null; history?: (url: string) => unknown }
@@ -92,13 +92,18 @@ test('US state-level monthly prices: one line per state, no district or market p
   expect(screen.queryByText(/Min \/ Max/)).not.toBeInTheDocument()
 })
 
-test('US terminal markets: lines grouped by package, low-high only, market picker works without districts', async () => {
+test('US terminal markets: mixed packages default to one per-lb scale, and "As reported" restores the packages; market picker works without districts', async () => {
   window.localStorage.setItem('agri.country', 'US')
   const urls = mock({ rows: [{ ...TBASE, grade: 'large', min: 20, max: 24, unit: '25 lb cartons' }, { ...TBASE, grade: 'large · organic', min: 30, max: 34, unit: '20 lb cartons' }], tree: TERMINAL })
   const user = userEvent.setup()
   page()
-  expect(await screen.findByRole('heading', { name: '25 lb cartons' })).toBeInTheDocument()
-  expect(screen.getByRole('heading', { name: '20 lb cartons' })).toBeInTheDocument()  // different packages never share a group or a scale
+  expect(await screen.findByRole('heading', { name: 'Per lb' })).toBeInTheDocument()  // both packages state a weight: one scale
+  expect(screen.getByRole('button', { name: /\$0\.80 – \$0\.96/ })).toBeInTheDocument()  // $20-$24 per 25 lb
+  expect(screen.getByRole('button', { name: /\$1\.50 – \$1\.70/ })).toBeInTheDocument()  // $30-$34 per 20 lb
+  expect(screen.getByText(/converted to per lb using the weight in each package name/)).toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'As reported' }))
+  expect(screen.getByRole('heading', { name: '25 lb cartons' })).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: '20 lb cartons' })).toBeInTheDocument()  // as reported, packages never share a scale
   expect(screen.getByText('large · organic')).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /\$20 – \$24/ })).toBeInTheDocument()
   expect(screen.queryByText(/Modal/)).not.toBeInTheDocument()
@@ -113,12 +118,34 @@ test('US terminal markets: lines grouped by package, low-high only, market picke
   await waitFor(() => expect(urls.some((u) => u.includes('market=Test+Terminal+Market'))).toBe(true))
 })
 
+test('packages with no stated weight are never converted: they stay in their own group with a note', async () => {
+  window.localStorage.setItem('agri.country', 'US')
+  mock({ rows: [{ ...TBASE, min: 20, max: 24, unit: '25 lb cartons' }, { ...TBASE, variety: 'VINE RIPES', min: 50, max: 52, unit: 'cartons 2 layer' }], tree: TERMINAL })
+  page()
+  expect(await screen.findByRole('heading', { name: 'Per lb' })).toBeInTheDocument()
+  const layer = screen.getByRole('heading', { name: 'cartons 2 layer' }).closest('section') as HTMLElement
+  expect(within(layer).getByText('No weight in the package name, so these cannot be shown per lb.')).toBeInTheDocument()
+  expect(within(layer).getByRole('button', { name: /\$50 – \$52/ })).toBeInTheDocument()  // exactly as reported, not a guessed per-lb price
+})
+
+test('India: a quintal price can be shown per kg, converted exactly (1 quintal = 100 kg)', async () => {
+  const user = userEvent.setup()
+  mock({ rows: [ROW] })
+  page()
+  expect(await screen.findByRole('button', { name: /₹1,800 – ₹2,600/ })).toBeInTheDocument()  // one package: stays as reported by default
+  await user.click(screen.getByRole('button', { name: 'Per kg' }))
+  const line = screen.getByRole('button', { name: /Local/ })
+  expect(within(line).getByText(/₹18 – ₹26/)).toBeInTheDocument()
+  expect(within(line).getByText(/₹22/)).toBeInTheDocument()  // the modal, 2200 / 100
+})
+
 test('long lists: each package shows its first 8 lines with a per-group expander, the variety filter works, and a server cut-off is disclosed', async () => {
   window.localStorage.setItem('agri.country', 'US')
   const lines = Array.from({ length: 45 }, (_, i) => ({ ...TBASE, variety: i % 2 ? 'VINE RIPES' : 'ROMA TYPE', grade: `size ${String(i).padStart(2, '0')}`, min: 10 + i, max: 12 + i, unit: i < 40 ? '25 lb cartons' : '10 lb cartons' }))
   mock({ rows: lines, total: 60, tree: TERMINAL })
   const user = userEvent.setup()
   page()
+  await user.click(await screen.findByRole('button', { name: 'As reported' }))
   const big = (await screen.findByRole('heading', { name: '25 lb cartons' })).closest('section') as HTMLElement
   const small = screen.getByRole('heading', { name: '10 lb cartons' }).closest('section') as HTMLElement
   expect(within(big).getAllByText(/^size \d\d$/)).toHaveLength(8)
@@ -133,7 +160,7 @@ test('long lists: each package shows its first 8 lines with a per-group expander
   expect(await screen.findByText(/Showing 23 of 23 price lines/)).toBeInTheDocument()
 })
 
-test('the chart follows the line you pick, never mixing packages, and states its basis and the change', async () => {
+test('the chart follows the line you pick, in the same unit as the list, and states its basis and the change', async () => {
   window.localStorage.setItem('agri.country', 'US')
   const urls = mock({
     rows: [{ ...TBASE, min: 20, max: 24, unit: '25 lb cartons' }, { ...TBASE, min: 9, max: 10, unit: '10 lb cartons' }], tree: TERMINAL,
@@ -141,13 +168,16 @@ test('the chart follows the line you pick, never mixing packages, and states its
   })
   const user = userEvent.setup()
   page()
-  expect(await screen.findByText(/Midpoint of the reported low–high range, per 10 lb cartons/)).toBeInTheDocument()  // starts on the first line of the first group
-  expect(screen.getByText(/Up \$2 since 2026-11-16/)).toBeInTheDocument()
-  expect(screen.getByText(/10 lb cartons · 1 line$/)).toBeInTheDocument()  // the chart says how many price lines it covers
-  expect(urls.some((u) => u.startsWith('/api/prices/history') && u.includes('unit=10+lb+cartons') && u.includes('variety=ROUND+TYPE'))).toBe(true)
-  await user.click(screen.getByRole('button', { name: /\$20 – \$24/ }))
-  expect(await screen.findByText(/Midpoint of the reported low–high range, per 25 lb cartons/)).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: /\$20 – \$24/ })).toHaveAttribute('aria-pressed', 'true')
+  expect(await screen.findByText(/Midpoint of the reported low–high range, per lb/)).toBeInTheDocument()  // list and chart share one scale
+  expect(screen.getByText(/Up \$0\.08 since 2026-11-16/)).toBeInTheDocument()  // $20 -> $22 per 25 lb package = $0.80 -> $0.88 per lb
+  expect(urls.some((u) => u.startsWith('/api/prices/history') && u.includes('unit=25+lb+cartons') && u.includes('variety=ROUND+TYPE'))).toBe(true)  // the server still gets the reported package
+  await user.click(screen.getByRole('button', { name: /\$0\.90 – \$1/ }))  // the 10 lb line
+  expect(await screen.findByText(/Up \$0\.20 since 2026-11-16/)).toBeInTheDocument()
+  expect(urls.some((u) => u.startsWith('/api/prices/history') && u.includes('unit=10+lb+cartons'))).toBe(true)
+  await user.click(screen.getByRole('button', { name: 'As reported' }))
+  expect(await screen.findByText(/Midpoint of the reported low–high range, per 10 lb cartons/)).toBeInTheDocument()
+  expect(screen.getByText(/Up \$2 since 2026-11-16/)).toBeInTheDocument()  // back in the reported package
+  expect(screen.getByText(/10 lb cartons · 1 line$/)).toBeInTheDocument()
 })
 
 test('shows when prices were last checked, and warns when the data has gone stale', async () => {

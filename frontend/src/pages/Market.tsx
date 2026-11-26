@@ -8,7 +8,8 @@ import { useLanguage } from '../context/LanguageContext'
 import { getDemo } from '../data/demo'
 import { formatMoney, formatNumber } from '../utils/format'
 import PriceChart from '../components/PriceChart'
-import PriceLedger, { groupRows, type Line } from '../components/PriceLedger'
+import PriceLedger, { groupRows, type Line, type LedgerRow } from '../components/PriceLedger'
+import { kgPerPackage } from '../utils/units'
 import CropIcon, { cropBg } from '../components/art/CropIcon'
 import { Card, DemoBadge, EmptyRegion } from '../components/ui'
 
@@ -86,7 +87,7 @@ export function Intelligence() {
   const [scope, setScope] = useState<Scope>({ commodity: region.commodities[0].id, state: '', district: '', market: '' })
   const locations = useLocations(region.code, scope.commodity)
   const latest = useLatestPrices(region.code, scope)
-  const [vf, setVf] = useState(''), [line, setLine] = useState<Line | null>(null)
+  const [vf, setVf] = useState(''), [line, setLine] = useState<Line | null>(null), [mode, setMode] = useState<'auto' | 'reported' | 'base'>('auto')
   const chartRef = useRef<HTMLDivElement>(null)
   const states = locations.data?.states ?? []
   const districts = states.find((s) => s.state === scope.state)?.districts ?? []
@@ -101,11 +102,24 @@ export function Intelligence() {
   const varieties = [...new Set(all.map((r) => r.variety).filter(Boolean))].sort()
   const vSel = varieties.includes(vf) ? vf : ''  // a filter from another crop quietly resets
   const rows = all.filter((r) => !vSel || r.variety === vSel)
-  const groups = groupRows(rows)
+  // One common scale: the region's everyday weight unit (lb in the US, kg in India). Only lines whose package names a weight
+  // are converted; the rest stay in their own package groups, because guessing a weight would be inventing a price.
+  const baseUnit = region.units[0]
+  const kgOf = (unit: string) => (baseUnit?.toKg ? kgPerPackage(unit, region, scope.commodity) : null)
+  const canConvert = rows.some((r) => r.unit !== baseUnit?.id && kgOf(r.unit) != null)
+  const perBase = canConvert && (mode === 'base' || (mode === 'auto' && new Set(rows.map((r) => r.unit)).size > 1))  // mixed packages default to one scale
+  const view: LedgerRow[] = perBase ? rows.map((r) => {
+    const kg = kgOf(r.unit)
+    if (kg == null) return r
+    const f = (baseUnit.toKg as number) / kg, conv = (v: number | null) => (v == null ? null : v * f)
+    return { ...r, min: conv(r.min), max: conv(r.max), modal: conv(r.modal), unit: baseUnit.id, srcUnit: r.unit }
+  }) : rows
+  const groups = groupRows(view)
   const first = rows[0] ?? all[0]  // filters can match nothing; the header still describes the source
   // The chart follows the line you pick; until you pick one (or if it is filtered away) it shows the first line of the biggest group.
   const top = groups[0]?.rows[0]
-  const chosen: Line | null = line && rows.some((r) => r.variety === line.variety && r.unit === line.unit) ? line : top ? { variety: top.variety, unit: top.unit } : null
+  const topSrc = top ? { variety: top.variety, unit: top.srcUnit ?? top.unit } : null
+  const chosen: Line | null = line && rows.some((r) => r.variety === line.variety && r.unit === line.unit) ? line : topSrc
   const history = usePriceHistory(region.code, scope, chosen?.variety ?? '', chosen?.unit ?? '')
   const showRange = rows.some((r) => r.min != null || r.max != null)
   const showModal = rows.some((r) => r.modal != null)  // USDA terminal markets report a low-high range, never a modal price
@@ -119,7 +133,10 @@ export function Intelligence() {
     <label className="flex flex-col gap-1 text-xs font-semibold">{label}
       <select className={sel} style={style} value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)}>
         <option value="">{t('prices.allOf')}</option>{options.map((o) => <option key={o} value={o}>{o}</option>)}</select></label>)
-  const points = history.data?.points ?? []
+  const chartKg = perBase && chosen ? kgOf(chosen.unit) : null
+  const chartF = chartKg != null ? (baseUnit.toKg as number) / chartKg : 1  // the chart is converted the same way as the list
+  const chartUnit = chartKg != null ? baseUnit.id : chosen?.unit ?? ''
+  const points = (history.data?.points ?? []).map((p) => ({ ...p, price: p.price * chartF }))
   const lastPt = points.at(-1), firstPt = points[0]
   const delta = lastPt && firstPt && points.length > 1 ? Math.round((lastPt.price - firstPt.price) * 100) / 100 : null
   const pickLine = (l: Line) => {
@@ -164,7 +181,7 @@ export function Intelligence() {
           <div ref={chartRef} className="lg:order-2 lg:sticky lg:top-4 lg:self-start">
             <Card>
               <h2 className="font-display text-lg font-extrabold">{t('prices.history')}</h2>
-              {chosen && <p className="text-sm" style={{ color: 'var(--muted)' }}>{chartName} · {unitLabel(chosen.unit)} · {t('prices.chartLines', { count: rows.filter((r) => r.variety === chosen.variety && r.unit === chosen.unit).length })}</p>}
+              {chosen && <p className="text-sm" style={{ color: 'var(--muted)' }}>{chartName} · {chartKg != null ? t('prices.perBase', { unit: unitLabel(chartUnit) }) : unitLabel(chartUnit)} · {t('prices.chartLines', { count: rows.filter((r) => r.variety === chosen.variety && r.unit === chosen.unit).length })}</p>}
               {lastPt && (
                 <p className="mt-3 flex flex-wrap items-baseline gap-x-3">
                   <span className="font-display text-2xl font-extrabold tabular-nums">{money(lastPt.price)}</span>
@@ -177,14 +194,20 @@ export function Intelligence() {
                 : history.data?.needs ? <p className="mt-3 text-sm" style={{ color: 'var(--muted)' }}>{t(history.data.needs === 'unit' ? 'prices.historyPickUnit' : 'prices.historyPickVariety')}</p>
                 : points.length > 1 ? <div className="mt-2"><PriceChart data={points.map((p) => ({ label: p.date.slice(5), price: p.price, forecast: null }))} demo={false} /></div>
                   : <p className="mt-3 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.historyThin')}</p>}
-              {history.data && <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t(first.period === 'monthly' ? 'prices.historyHintMonthly' : history.data?.basis === 'midpoint' ? 'prices.historyHintMid' : 'prices.historyHint', { unit: unitLabel(history.data?.unit ?? first.unit) })}</p>}
+              {history.data && <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t(first.period === 'monthly' ? 'prices.historyHintMonthly' : history.data?.basis === 'midpoint' ? 'prices.historyHintMid' : 'prices.historyHint', { unit: unitLabel(chartUnit || (history.data?.unit ?? first.unit)) })}</p>}
             </Card>
           </div>
           <Card className="lg:order-1">
-            <PriceLedger groups={groups} selected={chosen} onSelect={pickLine} money={money} unitLabel={unitLabel} showMarket={showMarket} />
+            {canConvert && (
+              <div role="group" aria-label={t('prices.scale')} className="mb-4 inline-flex rounded-xl border p-0.5" style={style}>
+                {([['reported', t('prices.asReported'), !perBase], ['base', t('prices.perBase', { unit: unitLabel(baseUnit.id) }), perBase]] as const).map(([m, label, on]) => (
+                  <button key={m} type="button" aria-pressed={on} onClick={() => setMode(m)}
+                    className={`min-h-11 rounded-[10px] px-4 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-brand ${on ? 'bg-brand text-white' : ''}`}>{label}</button>))}
+              </div>)}
+            <PriceLedger groups={groups} selected={chosen} onSelect={pickLine} money={money} unitLabel={unitLabel} showMarket={showMarket} convertedTo={perBase ? baseUnit.id : undefined} />
             {rows.length === 0 && <p className="text-sm" style={{ color: 'var(--muted)' }}>{t('prices.noMatch')}</p>}
             <p className="mt-4 text-xs" style={{ color: 'var(--muted)' }}>{t('prices.showing', { count: rows.length, shown: rows.length, matching: rows.length })}{total > all.length && ` · ${t('prices.truncated', { shown: all.length, total })}`}</p>
-            <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>{groups.length > 1 ? t('prices.perPackage') : t('prices.perUnit', { unit: unitLabel(first.unit) })} · {showRange && `${t(showModal ? 'prices.modalExplain' : 'prices.rangeExplain')} `}{t('pages.limits')}</p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>{perBase ? t('prices.convertNote', { unit: unitLabel(baseUnit.id) }) : groups.length > 1 ? t('prices.perPackage') : t('prices.perUnit', { unit: unitLabel(first.unit) })} · {showRange && `${t(showModal ? 'prices.modalExplain' : 'prices.rangeExplain')} `}{t('pages.limits')}</p>
           </Card>
         </div>)}
       {!hasLive && !latest.isError && latest.isSuccess && (
