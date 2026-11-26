@@ -4,11 +4,13 @@
     python -m app.prices.ingest run          # fetch all mapped crops and upsert
     python -m app.prices.ingest probe-nass   # US: check the real USDA response format
     python -m app.prices.ingest nass         # US: load monthly state prices received (needs NASS_API_KEY)
-    python -m app.prices.ingest csv FILE     # load a CSV downloaded from data.gov.in / Agmarknet (no API needed)
+    python -m app.prices.ingest probe-ams [KEYWORD|REPORT_ID]   # US daily markets: list reports, or show one report's raw shape
+    python -m app.prices.ingest csv FILE [--since 2019-01-01]   # load a downloaded Agmarknet CSV (data.gov.in or CEDA), no API needed
 """
 import csv
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 from collections import Counter
 
@@ -17,7 +19,9 @@ from sqlalchemy.orm import Session
 
 from ..db import SessionLocal
 from ..models import PriceObservation, utcnow
-from . import agmarknet, nass
+import json
+
+from . import agmarknet, ams, nass
 from .base import PriceRecord
 
 KEYS = ["source", "state", "district", "market", "commodity_raw", "variety", "grade", "obs_date"]
@@ -61,6 +65,14 @@ def probe_nass() -> None:
     print("NASS returned no rows.")
 
 
+def probe_ams(arg: str = "") -> None:
+    if arg.isdigit():
+        print(json.dumps(ams.sample_report(arg), indent=1, default=str)[:6000])
+        return
+    for r in ams.list_reports(arg)[:40]:
+        print({k: r[k] for k in list(r)[:6]})
+
+
 def run() -> None:
     total, skipped = 0, Counter()
     with SessionLocal() as db:
@@ -78,25 +90,34 @@ def run() -> None:
     print(f"Done. {total} price rows stored.")
 
 
-def load_csv(path: str) -> None:
-    """Import a downloaded Agmarknet CSV. Same parsing and filtering rules as the API path."""
-    batch: list[PriceRecord] = []
-    rows = skipped = unmapped = 0
-    with open(path, newline="", encoding="utf-8-sig") as f:
+def load_csv(path: str, since: date | None = None) -> None:
+    """Import an Agmarknet-style CSV (data.gov.in download or the CEDA bulk file). Same rules as the API path.
+
+    Streams the file in chunks, so multi-gigabyte files do not need to fit in memory. `since` skips older rows.
+    """
+    chunk: list[PriceRecord] = []
+    rows = skipped = unmapped = old = stored = 0
+    with open(path, newline="", encoding="utf-8-sig") as f, SessionLocal() as db:
         for raw in csv.DictReader(f):
             rows += 1
             rec = agmarknet.parse_record(raw)
             if rec is None:
                 skipped += 1
             elif rec.commodity is None:
-                unmapped += 1  # a crop the app does not show yet; kept out to keep the table small
+                unmapped += 1  # a crop the app does not show (yet)
+            elif since and rec.obs_date < since:
+                old += 1
             else:
-                batch.append(rec)
-    with SessionLocal() as db:
-        n = upsert(db, batch)
-    print(f"{rows} rows read: {n} stored, {skipped} unusable, {unmapped} for crops the app does not map.")
-    if rows and n == 0:
-        print("Nothing stored. Check the CSV header names, e.g. State, District, Market, Commodity, Arrival_Date, Min_Price, Max_Price, Modal_Price.")
+                chunk.append(rec)
+            if len(chunk) >= 5000:
+                stored += upsert(db, chunk)
+                chunk = []
+            if rows % 500_000 == 0:
+                print(f"  ...{rows:,} rows read, {stored:,} stored", flush=True)
+        stored += upsert(db, chunk)
+    print(f"{rows:,} rows read: {stored:,} stored, {skipped:,} unusable, {unmapped:,} for crops the app does not map, {old:,} before the start date.")
+    if rows and stored == 0:
+        print("Nothing stored. Check the CSV header names, e.g. date, state_name, district_name, market_name, commodity_name, min_price, max_price, modal_price.")
 
 
 def probe() -> None:
@@ -119,8 +140,10 @@ if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd in ("run", "nass", "csv"):
         migrate()
-    if cmd == "csv" and len(sys.argv) == 3:
-        load_csv(sys.argv[2])
+    if cmd == "csv" and len(sys.argv) in (3, 5) and (len(sys.argv) == 3 or sys.argv[3] == "--since"):
+        load_csv(sys.argv[2], date.fromisoformat(sys.argv[4]) if len(sys.argv) == 5 else None)
+    elif cmd == "probe-ams":
+        probe_ams(sys.argv[2] if len(sys.argv) > 2 else "")
     elif cmd in ("run", "probe", "nass", "probe-nass"):
         {"run": run, "probe": probe, "nass": run_nass, "probe-nass": probe_nass}[cmd]()
     else:

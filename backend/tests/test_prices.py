@@ -158,3 +158,14 @@ def test_nass_errors_never_contain_the_key(monkeypatch):
     with pytest.raises(RuntimeError) as e:
         list(nass.fetch_rows())
     assert "NASSSECRET9" not in str(e.value)
+
+
+def test_ceda_bulk_format_with_since_filter(client, capsys):
+    from datetime import date
+    from app.prices.ingest import load_csv
+    load_csv(str(Path(__file__).parent / "fixtures" / "ceda_format_sample.csv"), since=date(2020, 1, 1))
+    out = capsys.readouterr().out
+    assert "4 rows read: 2 stored, 0 unusable, 1 for crops the app does not map, 1 before the start date" in out
+    loc = client.get("/api/prices/locations?country=IN&commodity=chilli").json()
+    assert loc["as_of"] == "2021-12-30" and loc["states"][0]["state"] == "Test State"
+    assert client.get("/api/prices?country=IN&commodity=tomato").json()["items"][0]["modal"] == 2200
