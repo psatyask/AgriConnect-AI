@@ -16,8 +16,14 @@ from .base import PriceRecord
 
 SOURCE = "ams"
 BASE = "https://marsapi.ams.usda.gov/services/v1.2"
-# Strict, like the other sources: only names we are sure about. Everything else is counted and listed on import.
-COMMODITY_MAP = {"tomatoes": "tomato", "onions, dry": "onion", "onions dry": "onion", "dry onions": "onion"}
+# Strict, like the other sources: a product is mapped only by an exact USDA name, so crops are never merged by accident
+# (sweet potatoes are not potatoes, green onions are not dry onions). The names below are copied from real import output.
+# Everything else is counted and listed by the import, so the next names to add are visible.
+COMMODITY_MAP = {
+    "tomatoes": "tomato", "onions, dry": "onion", "onions dry": "onion", "dry onions": "onion",
+    "potatoes": "potato", "sweet potatoes": "sweet_potato", "mushrooms": "mushroom", "peppers, bell type": "bell_pepper",
+    "carrots": "carrot", "cucumbers": "cucumber", "garlic": "garlic", "cabbage": "cabbage", "eggplant": "eggplant", "broccoli": "broccoli",
+}
 STATES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California", "CO": "Colorado", "CT": "Connecticut",
     "DE": "Delaware", "DC": "District of Columbia", "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
@@ -66,11 +72,14 @@ def rows_of(data) -> list[dict]:
 
 
 def terminal_reports() -> list[dict]:
-    """Current terminal market reports that carry vegetables (tomatoes, onions...). Discontinued ones are skipped."""
+    """Current terminal market reports for vegetables, onions/potatoes and fruit. Discontinued ones are skipped.
+
+    Fruit is fetched so that its product names show up in the import's "unmapped" list, ready to be added.
+    """
     out = []
     for r in list_reports("terminal market"):
         title = str(r.get("report_title", "")).lower()
-        if "discontinued" not in title and ("vegetables" in title or "onions" in title):
+        if "discontinued" not in title and any(k in title for k in ("vegetable", "onion", "potato", "fruit")):
             out.append(r)
     return out
 

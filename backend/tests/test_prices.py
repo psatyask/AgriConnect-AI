@@ -214,7 +214,7 @@ def test_ams_import_command_reports_unmapped_products_and_rejects_nothing_silent
     ingest.run_ams()
     out = capsys.readouterr().out
     assert "5 price rows stored, 5 unusable rows" in out and "no package or unit (1)" in out and "no price (1)" in out and "1 rows for products the app does not map" in out
-    assert "Onions, Green (1)" in out and "FAILED: Broken: MARS API returned HTTP 500" in out
+    assert "Unmapped products (1)" in out and "Onions, Green (1)" in out and "FAILED: Broken: MARS API returned HTTP 500" in out
 
 
 def test_latest_reports_the_true_total_when_the_page_limit_cuts_it_short(client):
@@ -303,3 +303,21 @@ def test_refresh_does_not_run_twice_at_once_and_prices_report_when_they_were_che
     checked = client.get("/api/prices?country=US&commodity=tomato").json()["checked_at"]
     assert checked and datetime.fromisoformat(checked).year >= 2026
     assert client.get("/api/prices?country=US&commodity=corn").json()["checked_at"] is None
+
+
+def test_ams_maps_only_exact_product_names_and_keeps_look_alikes_apart():
+    from app.prices import ams
+    def commodity(name):
+        r = ams.parse_record({"report_date": "11/23/2026", "market_location_name": "M", "market_location_state": "NC", "commodity": name, "package": "50 lb sacks", "low_price": "1", "high_price": "2"})
+        return r.commodity
+    assert [commodity(n) for n in ("Potatoes", "Sweet Potatoes", "Peppers, Bell Type", "Mushrooms", "Carrots", "Cucumbers", "Garlic", "Cabbage", "Eggplant", "Broccoli")] == \
+        ["potato", "sweet_potato", "bell_pepper", "mushroom", "carrot", "cucumber", "garlic", "cabbage", "eggplant", "broccoli"]
+    assert [commodity(n) for n in ("Peppers, Hot Type", "Onions, Green", "Potato Salad", "Tomatillos")] == [None, None, None, None]  # near misses are not merged in
+
+
+def test_ams_report_selection_takes_current_vegetable_onion_potato_and_fruit_terminal_reports(monkeypatch):
+    from app.prices import ams
+    titles = ["Atlanta, GA Terminal Market Vegetables Prices (X)", "Atlanta, GA Terminal Market Onions and Potatoes Prices (X)", "Chicago, IL Terminal Market Fruits Prices (X)",
+              "Old Terminal Market Vegetables Prices (Discontinued)", "Somewhere Terminal Market Cattle Report"]
+    monkeypatch.setattr(ams, "list_reports", lambda kw="": [{"slug_id": i, "report_title": t} for i, t in enumerate(titles)])
+    assert [r["slug_id"] for r in ams.terminal_reports()] == [0, 1, 2]

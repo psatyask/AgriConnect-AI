@@ -105,11 +105,11 @@ def probe_ams(arg: str = "") -> None:
 
 
 def run_ams(days: int | None = None) -> None:
-    """US terminal market vegetable prices for the last N days (default 14). Needs MARS_API_KEY."""
+    """US terminal market prices (vegetables, fruit) for the last N days (default 14). Needs MARS_API_KEY."""
     days = days if days is not None else int(sys.argv[2]) if len(sys.argv) > 2 else 14
     end, begin = date.today(), date.today() - timedelta(days=days)
     reports = ams.terminal_reports()
-    print(f"{len(reports)} terminal market vegetable reports found; fetching {begin} to {end}")
+    print(f"{len(reports)} terminal market reports found; fetching {begin} to {end}")
     stored = collisions = 0
     unusable: Counter = Counter()
     conflicts: list[tuple[PriceRecord, PriceRecord]] = []
@@ -150,7 +150,7 @@ def run_ams(days: int | None = None) -> None:
         for a, b in conflicts[:3]:
             print(f"  e.g. {a.market} | {a.commodity_raw} | {a.variety} | {a.grade} | {a.unit} | {a.obs_date}: {a.min_price}-{a.max_price} vs {b.min_price}-{b.max_price}")
     if unmapped:
-        print("Most common unmapped products:", ", ".join(f"{n} ({c})" for n, c in unmapped.most_common(10)))
+        print(f"Unmapped products ({len(unmapped)}), most common first:", ", ".join(f"{n} ({c})" for n, c in unmapped.most_common(60)))
     for f in failed[:10]:
         print("FAILED:", f)
     if stored == 0:

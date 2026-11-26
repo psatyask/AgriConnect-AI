@@ -43,9 +43,9 @@ USDA publishes farm prices per state (monthly), not per county or city, so the U
 
 USDA AMS Market News publishes daily wholesale prices at terminal markets (for example Asheville, NC). Register free at https://mymarketnews.ams.usda.gov, copy the key from My Profile into `.env` as `MARS_API_KEY`, then:
 
-    python -m app.prices.ingest ams            # last 14 days (or: ams 30)
+    python -m app.prices.ingest ams            # last 14 days (or: ams 30, ams 90)
 
-Prices are quoted per package (for example "25 lb cartons") as a low-high range. The app keeps the package as the unit and never converts or averages across packages, and it shows no modal price because USDA does not report one. Only products the app maps (tomatoes, dry onions) are stored; the import prints the others it skipped so the mapping can be extended.
+Prices are quoted per package (for example "25 lb cartons") as a low-high range. The app keeps the package as the unit and never converts or averages across packages, and it shows no modal price because USDA does not report one. Only products the app maps are stored (tomatoes, dry onions, potatoes, sweet potatoes, mushrooms, bell peppers, carrots, cucumbers, garlic, cabbage, eggplant, broccoli); the import lists every other product it skipped, so the mapping can be extended. A product is mapped only by its exact USDA name, so look-alikes (green onions, hot peppers) are never merged in. After adding a product, run the import again, since skipped products are not stored.
 
 ## Keeping prices current
 
