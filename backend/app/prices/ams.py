@@ -25,7 +25,7 @@ def list_reports(keyword: str = "") -> list[dict]:
     data = _get("reports")
     items = data if isinstance(data, list) else data.get("results", [])
     k = keyword.lower()
-    return [i for i in items if not k or k in str(i).lower()]
+    return [i for i in items if not k or all(w in str(i.get('report_title', '')).lower() for w in k.split())]
 
 
 def sample_report(slug_id: str, limit: int = 3):

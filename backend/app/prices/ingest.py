@@ -69,8 +69,10 @@ def probe_ams(arg: str = "") -> None:
     if arg.isdigit():
         print(json.dumps(ams.sample_report(arg), indent=1, default=str)[:6000])
         return
-    for r in ams.list_reports(arg)[:40]:
-        print({k: r[k] for k in list(r)[:6]})
+    found = ams.list_reports(arg)
+    for r in found[:150]:
+        print(r.get("slug_id"), "|", r.get("report_title"), "|", r.get("report_date"))
+    print(f"{len(found)} reports match" + (" (showing 150; add another word to narrow)" if len(found) > 150 else ""))
 
 
 def run() -> None:
