@@ -1,0 +1,5 @@
+State,District,Market,Commodity,Variety,Grade,Arrival_Date,Min_Price,Max_Price,Modal_Price
+Test State,Test District A,Test Mandi 1,Tomato,Local,FAQ,26/11/2026,1800,2600,2200
+Test State,Test District A,Test Mandi 1,Wheat,Other,FAQ,26/11/2026,2000,2400,2200
+Test State,Test District B,Test Mandi 2,Tomato,Hybrid,FAQ,25/11/2026,2000,2400,2250
+Test State,Test District B,Test Mandi 2,Tomato,Local,FAQ,26/11/2026,0,0,0

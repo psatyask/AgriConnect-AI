@@ -21,6 +21,24 @@ This builds the frontend when sources changed, applies database migrations, and 
 
 Google Cloud Console > Google Auth Platform: create an External app, then Clients > Web application with Authorized JavaScript origins `http://localhost:8000` and `http://localhost:5173`; add test users while in Testing mode. The browser gets a Google ID token; the backend verifies it with Google's library, keys the account on Google's `sub`, and issues its own httpOnly session cookie. Roles (farmer/buyer) are stored in the database and enforced on the server; `admin` can only be granted directly in the database. Email/password (argon2) is the fallback.
 
+## Market prices (India)
+
+1. Get a free API key at https://data.gov.in and put it in `.env` as `DATA_GOV_IN_API_KEY`.
+2. Check the real response format once: `cd backend && python -m app.prices.ingest probe`
+3. Load prices (re-run daily): `python -m app.prices.ingest run`
+
+If the connection to data.gov.in fails (it may refuse connections from outside India), download a price CSV from data.gov.in or Agmarknet in your browser and load it instead: `cd backend && python -m app.prices.ingest csv path\to\file.csv`. Expected columns: State, District, Market, Commodity, Variety, Grade, Arrival_Date, Min_Price, Max_Price, Modal_Price.
+
+The Market Intelligence page then shows reported mandi prices by state, district and market. Until data is loaded it says so and shows labeled demo data.
+
+## Market prices (United States)
+
+USDA publishes farm prices per state (monthly), not per county or city, so the US picker is crop > state. Get a free key at https://quickstats.nass.usda.gov/api, put it in `.env` as `NASS_API_KEY`, then:
+
+    cd backend
+    python -m app.prices.ingest probe-nass     # check the real response format once
+    python -m app.prices.ingest nass           # load monthly state prices (corn, soybeans, wheat)
+
 ## Test
 
     cd frontend && npm test && npm run build

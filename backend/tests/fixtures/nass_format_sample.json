@@ -1,0 +1,14 @@
+{
+  "_note": "FORMAT SAMPLE FOR PARSER TESTS ONLY. Field layout follows the USDA NASS Quick Stats API; every value here is INVENTED and is not real price data.",
+  "data": [
+    {"state_name": "TEST STATE ONE", "commodity_desc": "CORN", "statisticcat_desc": "PRICE RECEIVED", "agg_level_desc": "STATE", "freq_desc": "MONTHLY", "unit_desc": "$ / BU", "domain_desc": "TOTAL", "class_desc": "ALL CLASSES", "reference_period_desc": "OCT", "year": "2026", "Value": "4.10"},
+    {"state_name": "TEST STATE ONE", "commodity_desc": "CORN", "statisticcat_desc": "PRICE RECEIVED", "agg_level_desc": "STATE", "freq_desc": "MONTHLY", "unit_desc": "$ / BU", "domain_desc": "TOTAL", "class_desc": "ALL CLASSES", "reference_period_desc": "SEP", "year": "2026", "Value": "3.95"},
+    {"state_name": "TEST STATE TWO", "commodity_desc": "SOYBEANS", "statisticcat_desc": "PRICE RECEIVED", "agg_level_desc": "STATE", "freq_desc": "MONTHLY", "unit_desc": "$ / BU", "domain_desc": "TOTAL", "class_desc": "ALL CLASSES", "reference_period_desc": "OCT", "year": "2026", "Value": "10.25"},
+    {"state_name": "TEST STATE TWO", "commodity_desc": "CORN", "statisticcat_desc": "PRICE RECEIVED", "agg_level_desc": "STATE", "freq_desc": "MONTHLY", "unit_desc": "$ / BU", "domain_desc": "TOTAL", "class_desc": "ALL CLASSES", "reference_period_desc": "OCT", "year": "2026", "Value": "(D)"},
+    {"state_name": "TEST STATE TWO", "commodity_desc": "CORN", "statisticcat_desc": "PRICE RECEIVED", "agg_level_desc": "STATE", "freq_desc": "MONTHLY", "unit_desc": "$ / TON", "domain_desc": "TOTAL", "class_desc": "ALL CLASSES", "reference_period_desc": "OCT", "year": "2026", "Value": "60"},
+    {"state_name": "TEST STATE TWO", "commodity_desc": "CORN", "statisticcat_desc": "PRICE RECEIVED", "agg_level_desc": "STATE", "freq_desc": "MONTHLY", "unit_desc": "$ / BU", "domain_desc": "ORGANIC", "class_desc": "ALL CLASSES", "reference_period_desc": "OCT", "year": "2026", "Value": "9.00"},
+    {"state_name": "US TOTAL", "commodity_desc": "CORN", "statisticcat_desc": "PRICE RECEIVED", "agg_level_desc": "NATIONAL", "freq_desc": "MONTHLY", "unit_desc": "$ / BU", "domain_desc": "TOTAL", "class_desc": "ALL CLASSES", "reference_period_desc": "OCT", "year": "2026", "Value": "4.00"},
+    {"state_name": "TEST STATE ONE", "commodity_desc": "CORN", "statisticcat_desc": "PRICE RECEIVED", "agg_level_desc": "STATE", "freq_desc": "ANNUAL", "unit_desc": "$ / BU", "domain_desc": "TOTAL", "class_desc": "ALL CLASSES", "reference_period_desc": "MARKETING YEAR", "year": "2026", "Value": "4.00"},
+    {"state_name": "TEST STATE ONE", "commodity_desc": "OATS", "statisticcat_desc": "PRICE RECEIVED", "agg_level_desc": "STATE", "freq_desc": "MONTHLY", "unit_desc": "$ / BU", "domain_desc": "TOTAL", "class_desc": "ALL CLASSES", "reference_period_desc": "OCT", "year": "2026", "Value": "3.00"}
+  ]
+}

@@ -1,3 +1,4 @@
+import { api } from '../api/client'
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 export type AppRole = 'farmer' | 'buyer' | 'admin'
@@ -15,23 +16,6 @@ interface AuthState {
 }
 
 const AuthContext = createContext<AuthState | null>(null)
-
-/** Error with the server's message, so the form can show it. */
-export class ApiError extends Error {
-  status: number
-  constructor(status: number, message: string) { super(message); this.status = status }
-}
-
-async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, ...init })
-  if (res.status === 204) return undefined as T
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    const detail = typeof body?.detail === 'string' ? body.detail : 'Something went wrong'
-    throw new ApiError(res.status, detail)
-  }
-  return body as T
-}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null)
