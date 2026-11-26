@@ -122,17 +122,14 @@ export default function Navbar() {
   }, [drawer])
 
   const link = ({ isActive }: { isActive: boolean }) =>
-    `whitespace-nowrap px-2 py-2 text-sm font-medium ${isActive ? 'border-b-2 border-brand text-brand' : ''}`
+    `whitespace-nowrap border-b-2 border-transparent px-3 py-3 text-sm font-medium ${isActive ? '!border-brand text-brand' : ''}`
   return (
     <header className="sticky top-0 z-40 border-b" style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
         <Link to="/" className="whitespace-nowrap font-display text-lg font-extrabold" style={{ color: 'var(--fg)' }}>
           AgriConnect <span className="text-brand">AI</span>
         </Link>
-        <nav aria-label="Main" className="ml-4 hidden flex-1 items-center gap-1 xl:flex">
-          {LINKS.map(([to, key]) => <NavLink key={to} to={to} end={to === '/'} className={link}>{t(key)}</NavLink>)}
-        </nav>
-        <div className="ml-auto flex items-center gap-2 xl:ml-0">
+        <div className="flex w-full items-center justify-between gap-2 sm:ml-auto sm:w-auto sm:justify-end">
           <RegionSelector /><LanguageSelector /><ThemeToggle />
           {user ? (
             <>
@@ -145,13 +142,18 @@ export default function Navbar() {
               <Link to="/login" className="hidden min-h-11 items-center rounded-xl bg-brand px-4 text-sm font-semibold text-white sm:flex">{t('nav.register')}</Link>
             </>
           )}
-          <button className={`${pill} xl:hidden`} style={{ borderColor: 'var(--border)' }} aria-label={t('nav.menu')}
+          <button className={`${pill} lg:hidden`} style={{ borderColor: 'var(--border)' }} aria-label={t('nav.menu')}
             aria-expanded={drawer} onClick={() => setDrawer(true)}><Menu size={18} aria-hidden /></button>
         </div>
       </div>
+      <div className="hidden border-t lg:block" style={{ borderColor: 'var(--border)' }}>
+        <nav aria-label="Main" className="mx-auto flex max-w-6xl items-center gap-2 px-4">
+          {LINKS.map(([to, key]) => <NavLink key={to} to={to} end={to === '/'} className={link}>{t(key)}</NavLink>)}
+        </nav>
+      </div>
       {usingFallback && <p role="status" className="bg-amber-100 px-4 py-1 text-center text-xs text-amber-900">{t('selectors.fallbackNotice')}</p>}
       {drawer && (
-        <div className="fixed inset-0 z-50 xl:hidden" role="dialog" aria-modal="true" aria-label={t('nav.menu')}>
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label={t('nav.menu')}>
           <button className="absolute inset-0 bg-black/40" aria-label={t('nav.close')} onClick={() => setDrawer(false)} />
           <div className="absolute right-0 top-0 h-full w-72 p-4" style={{ background: 'var(--card)' }}>
             <button className={`${pill} mb-3 ml-auto`} style={{ borderColor: 'var(--border)' }} aria-label={t('nav.close')}
