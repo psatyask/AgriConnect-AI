@@ -144,6 +144,8 @@ def parse_record(raw: dict) -> PriceRecord | None:
     organic = _clean(raw.get("organic")).upper()
     parts += [f"organic {organic.lower()}" if organic not in ("Y", "YES") else "organic"] if organic not in ("", "N", "NO", "N/A", "NA") else []
     parts += [f"from {origin}"] if origin else []
+    note = _clean(raw.get("reporter_comment"))  # USDA's own note; it is what separates otherwise identical lines (e.g. pink vs regular oyster)
+    parts += [f"note: {note[:80]}"] if note else []
     return PriceRecord(
         country="US", source=SOURCE, state=state, district="", market=market, commodity_raw=name,
         commodity=COMMODITY_MAP.get(name.lower()), variety=_clean(raw.get("variety"))[:200], grade=" · ".join(p for p in parts if p)[:200],

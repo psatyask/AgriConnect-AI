@@ -332,3 +332,12 @@ def test_ams_differing_fields_and_organic_values():
     assert "organic" not in (ams.parse_record({**base, "organic": "N"}).grade or "")
     assert ams.parse_record({**base, "organic": "Y"}).grade == "organic"
     assert "organic" in ams.parse_record({**base, "organic": "Certified"}).grade
+
+
+def test_ams_reporter_comment_keeps_otherwise_identical_lines_apart():
+    from app.prices import ams
+    base = {"report_date": "11/25/2026", "market_location_state": "GA", "market_location_name": "Atlanta", "commodity": "Mushrooms",
+            "variety": "OYSTER", "package": "3 lb cartons", "low_price": "34", "high_price": "35"}
+    a = ams.parse_record({**base, "reporter_comment": "occasional higher (pink)"})
+    b = ams.parse_record({**base, "reporter_comment": "occasional higher", "low_price": "24", "high_price": "27"})
+    assert a.grade != b.grade and "occasional higher (pink)" in a.grade
