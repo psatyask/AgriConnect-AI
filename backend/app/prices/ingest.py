@@ -68,7 +68,7 @@ def probe_nass() -> None:
 def _outline(x, name="root", depth=0) -> None:
     pad = "  " * depth
     if isinstance(x, dict):
-        print(f"{pad}{name}: object, keys={list(x)[:12]}")
+        print(f"{pad}{name}: object, keys={list(x)}")
         for k, v in list(x.items())[:12]:
             if isinstance(v, (dict, list)) and depth < 3:
                 _outline(v, k, depth + 1)
@@ -77,7 +77,7 @@ def _outline(x, name="root", depth=0) -> None:
         if x and depth < 3:
             _outline(x[0], name + "[0]", depth + 1)
             if isinstance(x[0], dict):
-                print(f"{pad}  first item: {json.dumps(x[0], default=str)[:600]}")
+                print(f"{pad}  first item: {json.dumps(x[0], default=str)[:2500]}")
 
 
 def probe_ams(arg: str = "") -> None:
