@@ -7,7 +7,9 @@
     python -m app.prices.ingest csv FILE     # load a CSV downloaded from data.gov.in / Agmarknet (no API needed)
 """
 import csv
+import subprocess
 import sys
+from pathlib import Path
 from collections import Counter
 
 from sqlalchemy.dialects.postgresql import insert
@@ -105,8 +107,18 @@ def probe() -> None:
     print("The API returned no rows for Tomato.")
 
 
+def migrate() -> None:
+    """Bring the database schema up to date first, so a new release never writes to an old table."""
+    backend = Path(__file__).resolve().parents[2]
+    result = subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=backend, capture_output=True, text=True)
+    if result.returncode != 0:
+        sys.exit("Could not update the database schema. Is the database running (docker compose up -d db)?\n" + result.stderr[-800:])
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd in ("run", "nass", "csv"):
+        migrate()
     if cmd == "csv" and len(sys.argv) == 3:
         load_csv(sys.argv[2])
     elif cmd in ("run", "probe", "nass", "probe-nass"):
