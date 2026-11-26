@@ -113,6 +113,8 @@ def run_ams(days: int | None = None) -> None:
     stored = collisions = 0
     unusable: Counter = Counter()
     conflicts: list[tuple[PriceRecord, PriceRecord]] = []
+    differ: Counter = Counter()
+    example: dict[str, tuple[str, str]] = {}
     unmapped: Counter = Counter()
     failed: list[str] = []
     with SessionLocal() as db:
@@ -124,6 +126,7 @@ def run_ams(days: int | None = None) -> None:
                 failed.append(f"{title}: {exc}")
                 continue
             batch: list[PriceRecord] = []
+            raw_of: dict[int, dict] = {}
             for raw in raws:
                 rec = ams.parse_record(raw)
                 if rec is None:
@@ -132,6 +135,7 @@ def run_ams(days: int | None = None) -> None:
                     unmapped[rec.commodity_raw] += 1
                 else:
                     batch.append(rec)
+                    raw_of[id(rec)] = raw
             seen: dict[tuple, PriceRecord] = {}
             for r in batch:
                 k = tuple(getattr(r, f) for f in KEYS)
@@ -139,6 +143,11 @@ def run_ams(days: int | None = None) -> None:
                     collisions += 1
                     if (seen[k].min_price, seen[k].max_price) != (r.min_price, r.max_price):
                         conflicts.append((seen[k], r))
+                        a, b = raw_of[id(seen[k])], raw_of[id(r)]
+                        for f in ams.differing_fields(a, b):
+                            if f not in ("low_price", "high_price", "mostly_low_price", "mostly_high_price", "report_date", "published_date"):
+                                differ[f] += 1
+                                example.setdefault(f, (str(a.get(f)), str(b.get(f))))
                 seen[k] = r
             stored += upsert(db, batch)
     print(f"Done. {stored} price rows stored, {sum(unusable.values())} unusable rows, "
@@ -149,6 +158,10 @@ def run_ams(days: int | None = None) -> None:
         print(f"Of the repeated rows, {len(conflicts)} had DIFFERENT prices (one of each pair was overwritten).")
         for a, b in conflicts[:3]:
             print(f"  e.g. {a.market} | {a.commodity_raw} | {a.variety} | {a.grade} | {a.unit} | {a.obs_date}: {a.min_price}-{a.max_price} vs {b.min_price}-{b.max_price}")
+    if differ:
+        print("Fields that differ inside those pairs (field: pairs, example):")
+        for f, n in differ.most_common(12):
+            print(f"  {f}: {n}, e.g. {example[f][0]!r} vs {example[f][1]!r}")
     if unmapped:
         print(f"Unmapped products ({len(unmapped)}), most common first:", ", ".join(f"{n} ({c})" for n, c in unmapped.most_common(60)))
     for f in failed[:10]:

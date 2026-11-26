@@ -141,10 +141,16 @@ def parse_record(raw: dict) -> PriceRecord | None:
                                          "transportation_mode", "properties")]
     sold_by = _clean(raw.get("unit_sales"))
     parts += [f"sold {sold_by}"] if sold_by and sold_by != unit else []
-    parts += ["organic"] if _clean(raw.get("organic")).upper() == "Y" else []
+    organic = _clean(raw.get("organic")).upper()
+    parts += [f"organic {organic.lower()}" if organic not in ("Y", "YES") else "organic"] if organic not in ("", "N", "NO", "N/A", "NA") else []
     parts += [f"from {origin}"] if origin else []
     return PriceRecord(
         country="US", source=SOURCE, state=state, district="", market=market, commodity_raw=name,
         commodity=COMMODITY_MAP.get(name.lower()), variety=_clean(raw.get("variety"))[:200], grade=" · ".join(p for p in parts if p)[:200],
         obs_date=obs, min_price=low, max_price=high, modal_price=None, unit=unit[:100], currency="USD",
     )
+
+
+def differing_fields(a: dict, b: dict) -> list[str]:
+    """Names of the raw USDA fields whose values differ between two rows (used to find what separates look-alike lines)."""
+    return sorted(k for k in set(a) | set(b) if _clean(a.get(k)) != _clean(b.get(k)))

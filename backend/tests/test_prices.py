@@ -321,3 +321,14 @@ def test_ams_report_selection_takes_current_vegetable_onion_potato_and_fruit_ter
               "Old Terminal Market Vegetables Prices (Discontinued)", "Somewhere Terminal Market Cattle Report"]
     monkeypatch.setattr(ams, "list_reports", lambda kw="": [{"slug_id": i, "report_title": t} for i, t in enumerate(titles)])
     assert [r["slug_id"] for r in ams.terminal_reports()] == [0, 1, 2]
+
+
+def test_ams_differing_fields_and_organic_values():
+    from app.prices import ams
+    a = {"low_price": "1", "organic": "N", "variety": "x"}
+    assert ams.differing_fields(a, {**a, "organic": "Y", "extra": "z"}) == ["extra", "organic"]
+    base = {"report_date": "11/25/2026", "market_location_state": "GA", "market_location_name": "Atlanta", "commodity": "Tomatoes",
+            "package": "25 lb cartons loose", "low_price": "1", "high_price": "2"}
+    assert "organic" not in (ams.parse_record({**base, "organic": "N"}).grade or "")
+    assert ams.parse_record({**base, "organic": "Y"}).grade == "organic"
+    assert "organic" in ams.parse_record({**base, "organic": "Certified"}).grade
