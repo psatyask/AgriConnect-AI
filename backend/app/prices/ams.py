@@ -24,6 +24,85 @@ COMMODITY_MAP = {
     "potatoes": "potato", "sweet potatoes": "sweet_potato", "mushrooms": "mushroom", "peppers, bell type": "bell_pepper",
     "carrots": "carrot", "cucumbers": "cucumber", "garlic": "garlic", "cabbage": "cabbage", "eggplant": "eggplant", "broccoli": "broccoli",
 }
+COMMODITY_MAP.update({
+    "apples": "apple",
+    "oranges": "orange",
+    "pears": "pear",
+    "lemons": "lemon",
+    "limes": "lime",
+    "mangoes": "mango",
+    "bananas": "banana",
+    "avocados": "avocado",
+    "grapes": "grape",
+    "grapefruit": "grapefruit",
+    "kiwifruit": "kiwifruit",
+    "pineapples": "pineapple",
+    "tangerines": "tangerine",
+    "papaya": "papaya",
+    "persimmons": "persimmon",
+    "watermelons": "watermelon",
+    "honeydews": "honeydew",
+    "cantaloupes": "cantaloupe",
+    "pomegranates": "pomegranate",
+    "plantains": "plantain",
+    "dragon fruit (pitaya)": "dragon_fruit",
+    "blueberries": "blueberry",
+    "strawberries": "strawberry",
+    "raspberries": "raspberry",
+    "blackberries": "blackberry",
+    "coconuts": "coconut",
+    "figs": "fig",
+    "plums": "plum",
+    "peaches": "peach",
+    "apple pears": "apple_pear",
+    "pummelo": "pummelo",
+    "cauliflower": "cauliflower",
+    "beets": "beet",
+    "celery": "celery",
+    "radishes": "radish",
+    "lettuce, romaine": "lettuce",
+    "lettuce, iceberg": "lettuce",
+    "lettuce, green leaf": "lettuce",
+    "parsley": "parsley",
+    "spinach": "spinach",
+    "asparagus": "asparagus",
+    "onions, green": "green_onion",
+    "ginger root": "ginger",
+    "squash, zucchini": "squash",
+    "squash, yellow straightneck": "squash",
+    "greens, kale": "leafy_greens",
+    "greens, swiss chard": "leafy_greens",
+    "chayote": "chayote",
+    "peppers, habanero": "hot_pepper",
+    "peppers, jalapeno": "hot_pepper",
+    "peppers, poblano": "hot_pepper",
+    "cilantro": "cilantro",
+    "corn, sweet": "sweet_corn",
+    "bok choy": "bok_choy",
+    "tomatillos": "tomatillo",
+    "basil": "basil",
+    "dry eschallot": "shallot",
+    "endive": "endive",
+    "dill": "dill",
+    "pumpkins": "pumpkin",
+    "tomatoes, plum type": "tomato",
+    "tomatoes, grape type": "tomato",
+})
+# Sub-types share one crop id; the sub-type is shown as the variety so lines stay apart.
+SUBTYPES = {
+    "lettuce, romaine": "Romaine",
+    "lettuce, iceberg": "Iceberg",
+    "lettuce, green leaf": "Green leaf",
+    "squash, zucchini": "Zucchini",
+    "squash, yellow straightneck": "Yellow straightneck",
+    "greens, kale": "Kale",
+    "greens, swiss chard": "Swiss chard",
+    "peppers, habanero": "Habanero",
+    "peppers, jalapeno": "Jalapeño",
+    "peppers, poblano": "Poblano",
+    "tomatoes, plum type": "Plum",
+    "tomatoes, grape type": "Grape",
+}
 STATES = {
     "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California", "CO": "Colorado", "CT": "Connecticut",
     "DE": "Delaware", "DC": "District of Columbia", "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
@@ -125,6 +204,11 @@ def _read(raw: dict):
     return (obs, market, name, state, unit, low, high), None
 
 
+def _variety(raw: dict, name: str) -> str:
+    sub, v = SUBTYPES.get(name.lower(), ""), _clean(raw.get("variety"))
+    return (f"{sub} {v}" if sub and v else sub or v)[:200]
+
+
 def reject_reason(raw: dict) -> str | None:
     return _read(raw)[1]
 
@@ -148,7 +232,7 @@ def parse_record(raw: dict) -> PriceRecord | None:
     parts += [f"note: {note[:80]}"] if note else []
     return PriceRecord(
         country="US", source=SOURCE, state=state, district="", market=market, commodity_raw=name,
-        commodity=COMMODITY_MAP.get(name.lower()), variety=_clean(raw.get("variety"))[:200], grade=" · ".join(p for p in parts if p)[:200],
+        commodity=COMMODITY_MAP.get(name.lower()), variety=_variety(raw, name), grade=" · ".join(p for p in parts if p)[:200],
         obs_date=obs, min_price=low, max_price=high, modal_price=None, unit=unit[:100], currency="USD",
     )
 

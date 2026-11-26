@@ -1,3 +1,4 @@
+import { EXTRA_ICONS } from './cropShapes'
 /** Simple original crop icons, keyed by canonical commodity id. Decorative: the name is always shown as text. */
 const LEAF = '#3f8f3a'
 
@@ -74,6 +75,7 @@ const ICONS: Record<string, { bg: string; art: React.ReactNode }> = {
 
 /** US "corn" and India "maize" are the same crop and share one drawing. */
 ICONS.corn = ICONS.maize
+Object.assign(ICONS, EXTRA_ICONS)
 
 export function cropBg(id: string): string {
   return ICONS[id]?.bg ?? '#e5e7eb'

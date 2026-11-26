@@ -21,6 +21,8 @@ export interface CommodityDef {
   categoryKey: string
   /** Default unit id for prices of this commodity in this country. */
   priceUnit: string
+  /** Shown on the home page. The full list stays available in every picker. */
+  featured?: boolean
 }
 
 export interface RegionPack {

@@ -8,6 +8,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { getDemo } from '../data/demo'
 import { formatMoney, formatNumber } from '../utils/format'
 import PriceChart from '../components/PriceChart'
+import CropOptions from '../components/CropOptions'
 import PriceLedger, { groupRows, type Line, type LedgerRow } from '../components/PriceLedger'
 import { kgPerPackage } from '../utils/units'
 import CropIcon, { cropBg } from '../components/art/CropIcon'
@@ -46,7 +47,7 @@ export function Marketplace() {
           <label className="flex flex-col gap-1 text-xs font-semibold">{t('home.cropLabel')}
             <select className={input} style={{ borderColor: 'var(--border)', background: 'var(--card)' }} value={commodity} onChange={(e) => setCommodity(e.target.value)}>
               <option value="" />
-              {region.commodities.map((c) => <option key={c.id} value={c.id}>{t(c.nameKey)}</option>)}
+              <CropOptions crops={region.commodities} />
             </select></label>
           <label className="flex flex-col gap-1 text-xs font-semibold">{t('home.locationLabel')}
             <input className={input} style={{ borderColor: 'var(--border)' }} value={place} onChange={(e) => setPlace(e.target.value)} /></label>
@@ -160,7 +161,7 @@ export function Intelligence() {
       <Card className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]">
         <label className="flex flex-col gap-1 text-xs font-semibold">{t('home.cropLabel')}
           <select className={sel} style={style} value={scope.commodity} onChange={(e) => { setScope({ commodity: e.target.value, state: '', district: '', market: '' }); setLine(null) }}>
-            {region.commodities.map((c) => <option key={c.id} value={c.id}>{t(c.nameKey)}</option>)}</select></label>
+            <CropOptions crops={region.commodities} /></select></label>
         {field(t('prices.state'), scope.state, (v) => pick({ state: v, district: '', market: '' }), states.map((s) => s.state), states.length === 0)}
         {hasDistricts && field(t('prices.district'), scope.district, (v) => pick({ district: v, market: '' }), districts.map((d) => d.district), !scope.state)}
         {hasMarkets && field(t('prices.market'), scope.market, (v) => pick({ market: v }), markets, hasDistricts ? !scope.district : !scope.state)}

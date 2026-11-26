@@ -178,13 +178,13 @@ AMS_RAW = json.loads((Path(__file__).parent / "fixtures" / "ams_format_sample.js
 def test_ams_parser_keeps_package_as_the_unit_and_never_invents_a_modal():
     from app.prices import ams
     recs = [r for r in map(ams.parse_record, AMS_RAW) if r]
-    # kept: 3 tomato lines, 2 dry-onion days, 1 green-onion line (unmapped). Dropped: no package, no price, low>high, bad date, unknown state.
+    # kept: 3 tomato lines, 2 dry-onion days, 1 pearl-onion line (unmapped). Dropped: no package, no price, low>high, bad date, unknown state.
     assert len(recs) == 6
     t = recs[0]
     assert (t.commodity, t.state, t.market, t.unit, t.currency) == ("tomato", "North Carolina", "Test Terminal Market", "25 lb cartons", "USD")
     assert (t.min_price, t.max_price, t.modal_price) == (20, 24, None)  # the "mostly" range is not a modal price
     assert t.grade == "US No. 1 · large · from Mexico, SINALOA"
-    assert next(r for r in recs if r.commodity_raw == "Onions, Green").commodity is None  # never merged with dry onions
+    assert next(r for r in recs if r.commodity_raw == "Onions, Pearl").commodity is None  # never merged with dry onions
 
 
 def test_ams_lines_that_differ_only_by_package_or_organic_are_kept_apart(client):
@@ -214,7 +214,7 @@ def test_ams_import_command_reports_unmapped_products_and_rejects_nothing_silent
     ingest.run_ams()
     out = capsys.readouterr().out
     assert "5 price rows stored, 5 unusable rows" in out and "no package or unit (1)" in out and "no price (1)" in out and "1 rows for products the app does not map" in out
-    assert "Unmapped products (1)" in out and "Onions, Green (1)" in out and "FAILED: Broken: MARS API returned HTTP 500" in out
+    assert "Unmapped products (1)" in out and "Onions, Pearl (1)" in out and "FAILED: Broken: MARS API returned HTTP 500" in out
 
 
 def test_latest_reports_the_true_total_when_the_page_limit_cuts_it_short(client):
@@ -312,7 +312,7 @@ def test_ams_maps_only_exact_product_names_and_keeps_look_alikes_apart():
         return r.commodity
     assert [commodity(n) for n in ("Potatoes", "Sweet Potatoes", "Peppers, Bell Type", "Mushrooms", "Carrots", "Cucumbers", "Garlic", "Cabbage", "Eggplant", "Broccoli")] == \
         ["potato", "sweet_potato", "bell_pepper", "mushroom", "carrot", "cucumber", "garlic", "cabbage", "eggplant", "broccoli"]
-    assert [commodity(n) for n in ("Peppers, Hot Type", "Onions, Green", "Potato Salad", "Tomatillos")] == [None, None, None, None]  # near misses are not merged in
+    assert [commodity(n) for n in ("Peppers, Hot Type", "Onions, Pearl", "Potato Salad", "Tomatillo Salsa")] == [None, None, None, None]  # near misses are not merged in
 
 
 def test_ams_report_selection_takes_current_vegetable_onion_potato_and_fruit_terminal_reports(monkeypatch):
@@ -341,3 +341,32 @@ def test_ams_reporter_comment_keeps_otherwise_identical_lines_apart():
     a = ams.parse_record({**base, "reporter_comment": "occasional higher (pink)"})
     b = ams.parse_record({**base, "reporter_comment": "occasional higher", "low_price": "24", "high_price": "27"})
     assert a.grade != b.grade and "occasional higher (pink)" in a.grade
+
+
+def test_every_mapped_ams_crop_exists_in_the_us_region_pack_and_all_languages():
+    """Drift guard: a crop the importer can store must be selectable and named in every language."""
+    import re
+    from app.prices import ams
+    src = Path(__file__).resolve().parents[2] / "frontend" / "src"
+    if not (src / "regions" / "us.ts").exists():
+        import pytest
+        pytest.skip("frontend sources not available")
+    pack = (src / "regions" / "us.ts").read_text(encoding="utf-8")
+    for crop in sorted(set(ams.COMMODITY_MAP.values())):
+        assert f"id: '{crop}'," in pack, f"{crop} missing from regions/us.ts"
+        for lang in ("en", "hi", "te", "es"):
+            text = (src / "locales" / f"{lang}.ts").read_text(encoding="utf-8")
+            assert re.search(rf"^\s+{crop}: ['\"]", text, re.M), f"{crop} has no {lang} name"
+
+
+def test_ams_subtypes_share_one_crop_and_show_in_the_variety():
+    from app.prices import ams
+    base = {"report_date": "11/25/2026", "market_location_state": "GA", "market_location_name": "Atlanta",
+            "package": "25 lb cartons", "low_price": "10", "high_price": "12"}
+    plum = ams.parse_record({**base, "commodity": "Tomatoes, Plum Type", "variety": "ROMA"})
+    rom = ams.parse_record({**base, "commodity": "Lettuce, Romaine"})
+    ice = ams.parse_record({**base, "commodity": "Lettuce, Iceberg"})
+    assert (plum.commodity, plum.variety) == ("tomato", "Plum ROMA")
+    assert (rom.commodity, ice.commodity) == ("lettuce", "lettuce") and rom.variety == "Romaine" and ice.variety == "Iceberg"
+    assert ams.parse_record({**base, "commodity": "Apples"}).commodity == "apple"
+    assert ams.parse_record({**base, "commodity": "Peppers, Bell Type"}).commodity == "bell_pepper"  # unchanged
