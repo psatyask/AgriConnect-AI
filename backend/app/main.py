@@ -6,12 +6,13 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .auth import router as auth_router
+from .listings import router as listings_router
 from .config import ROOT, settings
 
 app = FastAPI(title="AgriConnect AI API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware, allow_origins=settings.origins, allow_credentials=True,
-    allow_methods=["GET", "POST"], allow_headers=["Content-Type"],
+    allow_methods=["GET", "POST", "PATCH"], allow_headers=["Content-Type"],
 )
 
 
@@ -26,6 +27,7 @@ async def reject_foreign_origins(request: Request, call_next):
 
 
 app.include_router(auth_router)
+app.include_router(listings_router)
 
 
 @app.get("/api/health")

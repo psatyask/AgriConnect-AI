@@ -12,6 +12,12 @@
 - Google sign-in verified server-side, email/password fallback (argon2), server-side sessions (hashed tokens, httpOnly cookie), server-enforced roles, Origin check against CSRF.
 - React login page, role-protected dashboards, 15 backend and 17 frontend tests.
 
+## Done (Phase 2, part 2: marketplace)
+- Listings and inquiries (Alembic 0002): farmers publish, close or mark sold; buyers browse (public, filterable) and send inquiries.
+- Farmers see buyer name and message only; buyer email/phone stay private (consent feature comes later). Other farmers' listings return 404.
+- Marketplace and dashboards use real data; demo listings appear only when no real ones exist and are labeled DEMO.
+- Two-tier navbar. 29 backend and 21 frontend tests; browser end-to-end run (farmer publishes, buyer inquires, farmer sees it) passed.
+
 ## Known gaps
 - Login has no rate limiting or email verification for password accounts yet.
 - Real Google sign-in is untested end to end until a client ID is configured on a machine with internet access.
