@@ -81,3 +81,29 @@ def test_history_skips_days_without_reports(client, monkeypatch):
     monkeypatch.setattr(price_api, "utcnow", lambda: datetime(2026, 11, 27, tzinfo=timezone.utc))
     pts = client.get("/api/prices/history?country=IN&commodity=tomato&days=30").json()["points"]
     assert pts == [{"date": "2026-11-25", "price": 2250.0, "reports": 1}, {"date": "2026-11-26", "price": 2200.0, "reports": 1}]
+
+
+def test_csv_import_matches_api_rules(client, capsys):
+    from app.prices.ingest import load_csv
+    load_csv(str(Path(__file__).parent / "fixtures" / "agmarknet_format_sample.csv"))
+    out = capsys.readouterr().out
+    assert "4 rows read: 2 stored, 1 unusable, 1 for crops the app does not map" in out
+    assert client.get("/api/prices?country=IN&commodity=tomato").json()["items"][0]["market"] in {"Test Mandi 1", "Test Mandi 2"}
+
+
+def test_column_aliases_from_other_exports():
+    r = agmarknet.parse_record({"state": "S", "district": "D", "market_name": "M", "commodity_name": "Onion", "date": "2026-11-26",
+                                "min": "1", "max": "3", "modal": "2"})
+    assert r and (r.market, r.commodity, r.modal_price) == ("M", "onion", 2)
+
+
+def test_api_errors_never_contain_the_key(monkeypatch):
+    import pytest, requests
+    from app.config import settings
+    monkeypatch.setattr(settings, "data_gov_in_api_key", "SECRETKEY123")
+    def boom(*a, **k):
+        raise requests.ConnectionError("failed https://api.data.gov.in/x?api-key=SECRETKEY123&format=json")
+    monkeypatch.setattr(requests, "get", boom)
+    with pytest.raises(RuntimeError) as e:
+        list(agmarknet.fetch_pages("Tomato"))
+    assert "SECRETKEY123" not in str(e.value) and "csv FILE" in str(e.value)

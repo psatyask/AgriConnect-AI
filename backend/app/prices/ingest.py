@@ -2,7 +2,9 @@
 
     python -m app.prices.ingest probe        # print the real field names of one response (verifies the parser)
     python -m app.prices.ingest run          # fetch all mapped crops and upsert
+    python -m app.prices.ingest csv FILE     # load a CSV downloaded from data.gov.in / Agmarknet (no API needed)
 """
+import csv
 import sys
 from collections import Counter
 
@@ -49,6 +51,27 @@ def run() -> None:
     print(f"Done. {total} price rows stored.")
 
 
+def load_csv(path: str) -> None:
+    """Import a downloaded Agmarknet CSV. Same parsing and filtering rules as the API path."""
+    batch: list[PriceRecord] = []
+    rows = skipped = unmapped = 0
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        for raw in csv.DictReader(f):
+            rows += 1
+            rec = agmarknet.parse_record(raw)
+            if rec is None:
+                skipped += 1
+            elif rec.commodity is None:
+                unmapped += 1  # a crop the app does not show yet; kept out to keep the table small
+            else:
+                batch.append(rec)
+    with SessionLocal() as db:
+        n = upsert(db, batch)
+    print(f"{rows} rows read: {n} stored, {skipped} unusable, {unmapped} for crops the app does not map.")
+    if rows and n == 0:
+        print("Nothing stored. Check the CSV header names, e.g. State, District, Market, Commodity, Arrival_Date, Min_Price, Max_Price, Modal_Price.")
+
+
 def probe() -> None:
     for raw in agmarknet.fetch_pages("Tomato", limit=3, max_pages=1):
         print("fields:", sorted(raw))
@@ -58,4 +81,10 @@ def probe() -> None:
 
 
 if __name__ == "__main__":
-    {"run": run, "probe": probe}.get(sys.argv[1] if len(sys.argv) > 1 else "", lambda: sys.exit(__doc__))()
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "csv" and len(sys.argv) == 3:
+        load_csv(sys.argv[2])
+    elif cmd in ("run", "probe"):
+        {"run": run, "probe": probe}[cmd]()
+    else:
+        sys.exit(__doc__)

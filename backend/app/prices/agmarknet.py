@@ -30,6 +30,23 @@ COMMODITY_MAP = {
 REQUEST_NAMES = {"tomato": "Tomato", "onion": "Onion", "rice": "Rice", "chilli": "Dry Chillies", "maize": "Maize"}
 
 
+ALIASES = {
+    "arrival_date": ("arrival_date", "date", "price_date", "reported_date"),
+    "min_price": ("min_price", "min", "minimum_price", "min_price_rs_quintal"),
+    "max_price": ("max_price", "max", "maximum_price", "max_price_rs_quintal"),
+    "modal_price": ("modal_price", "modal", "modal_price_rs_quintal"),
+    "market": ("market", "market_name", "mandi"),
+    "commodity": ("commodity", "commodity_name"),
+}
+
+
+def _pick(r: dict, name: str):
+    for alias in ALIASES.get(name, (name,)):
+        if r.get(alias) not in (None, ""):
+            return r[alias]
+    return None
+
+
 def _key(k: str) -> str:
     """Normalise field names: case, spaces and SharePoint-style '_x0020_' escapes."""
     return re.sub(r"[^a-z0-9]+", "_", k.replace("_x0020_", "_").lower()).strip("_")
@@ -55,9 +72,9 @@ def _date(v: object) -> date | None:
 def parse_record(raw: dict) -> PriceRecord | None:
     """Turn one API row into a PriceRecord, or None if it cannot be trusted."""
     r = {_key(k): (v.strip() if isinstance(v, str) else v) for k, v in raw.items()}
-    obs = _date(r.get("arrival_date"))
-    lo, hi, modal = _price(r.get("min_price")), _price(r.get("max_price")), _price(r.get("modal_price"))
-    market, state, name = r.get("market") or "", r.get("state") or "", r.get("commodity") or ""
+    obs = _date(_pick(r, "arrival_date"))
+    lo, hi, modal = _price(_pick(r, "min_price")), _price(_pick(r, "max_price")), _price(_pick(r, "modal_price"))
+    market, state, name = _pick(r, "market") or "", r.get("state") or "", _pick(r, "commodity") or ""
     if not (obs and market and state and name) or modal is None:
         return None
     if lo is not None and hi is not None and lo > hi:
@@ -75,12 +92,18 @@ def fetch_pages(commodity_name: str, limit: int = 1000, max_pages: int = 20) -> 
         raise RuntimeError("DATA_GOV_IN_API_KEY is not set in .env")
     url = API.format(resource=settings.agmarknet_resource_id)
     for page in range(max_pages):
-        resp = requests.get(url, timeout=30, params={
-            "api-key": settings.data_gov_in_api_key, "format": "json", "limit": limit, "offset": page * limit,
-            "filters[commodity]": commodity_name,
-        })
-        resp.raise_for_status()
-        records = resp.json().get("records", [])
+        try:
+            resp = requests.get(url, timeout=30, params={
+                "api-key": settings.data_gov_in_api_key, "format": "json", "limit": limit, "offset": page * limit,
+                "filters[commodity]": commodity_name,
+            })
+            resp.raise_for_status()
+            records = resp.json().get("records", [])
+        except requests.RequestException as exc:
+            # requests puts the full URL (with the key) in its messages: never show it.
+            msg = str(exc).replace(settings.data_gov_in_api_key, "***")
+            raise RuntimeError(f"Could not reach data.gov.in ({type(exc).__name__}). If you are outside India the server may refuse "
+                               f"connections; load a downloaded file instead: python -m app.prices.ingest csv FILE. Detail: {msg[:200]}") from None
         yield from records
         if len(records) < limit:
             return
