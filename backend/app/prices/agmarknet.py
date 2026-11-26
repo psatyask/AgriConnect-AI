@@ -37,6 +37,8 @@ ALIASES = {
     "modal_price": ("modal_price", "modal", "modal_price_rs_quintal"),
     "market": ("market", "market_name", "mandi"),
     "commodity": ("commodity", "commodity_name"),
+    "state": ("state", "state_name"),
+    "district": ("district", "district_name"),
 }
 
 
@@ -74,13 +76,13 @@ def parse_record(raw: dict) -> PriceRecord | None:
     r = {_key(k): (v.strip() if isinstance(v, str) else v) for k, v in raw.items()}
     obs = _date(_pick(r, "arrival_date"))
     lo, hi, modal = _price(_pick(r, "min_price")), _price(_pick(r, "max_price")), _price(_pick(r, "modal_price"))
-    market, state, name = _pick(r, "market") or "", r.get("state") or "", _pick(r, "commodity") or ""
+    market, state, name = _pick(r, "market") or "", _pick(r, "state") or "", _pick(r, "commodity") or ""
     if not (obs and market and state and name) or modal is None:
         return None
     if lo is not None and hi is not None and lo > hi:
         return None  # inconsistent row: drop rather than guess which side is wrong
     return PriceRecord(
-        country="IN", source=SOURCE, state=state, district=r.get("district") or "", market=market,
+        country="IN", source=SOURCE, state=state, district=_pick(r, "district") or "", market=market,
         commodity_raw=name, commodity=COMMODITY_MAP.get(name.lower()), variety=r.get("variety") or "",
         grade=r.get("grade") or "", obs_date=obs, min_price=lo, max_price=hi, modal_price=modal,
         unit="quintal", currency="INR",
