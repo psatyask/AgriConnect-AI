@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     cookie_secure: bool = False
     session_days: int = 7
     data_gov_in_api_key: str = ""
+    nass_api_key: str = ""
     # data.gov.in resource id of the Agmarknet daily price dataset; confirm with `ingest probe`.
     agmarknet_resource_id: str = "9ef84268-d588-465a-a308-a864a43d0070"
 

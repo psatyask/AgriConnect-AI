@@ -22,3 +22,4 @@ class PriceRecord:
     modal_price: Decimal | None  # most common / average price
     unit: str             # unit id the price is quoted per, e.g. "quintal"
     currency: str
+    period: str = "daily"  # "daily" or "monthly" (obs_date is then the first day of the month)

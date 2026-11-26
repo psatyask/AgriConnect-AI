@@ -56,3 +56,17 @@ test('state, district and market pickers cascade and filter the request', async 
   await user.selectOptions(market, 'Test Mandi 1')
   await waitFor(() => expect(urls.some((u) => u.includes('state=Test+State') && u.includes('district=Test+District+A') && u.includes('market=Test+Mandi+1'))).toBe(true))
 })
+
+test('US state-level monthly prices: no district/market pickers, no empty Min/Max columns, month shown', async () => {
+  window.localStorage.setItem('agri.country', 'US')
+  const US_ROW = { state: 'Test State One', district: '', market: 'State average', variety: '', grade: '', date: '2026-10-01', min: null, max: null, modal: 4.1,
+    unit: 'bushel', currency: 'USD', period: 'monthly', source: 'nass', source_label: 'USDA NASS, prices received by farmers' }
+  mock([US_ROW], { as_of: '2026-10-01', states: [{ state: 'Test State One', districts: [{ district: '', markets: ['State average'] }] }] })
+  page()
+  expect(await screen.findByText('State average')).toBeInTheDocument()
+  expect(screen.getByRole('option', { name: 'Corn' })).toBeInTheDocument() // US crops, so the US pack is active
+  expect(screen.getByText('2026-10')).toBeInTheDocument()
+  expect(screen.getByText(/USDA NASS/)).toBeInTheDocument()
+  expect(screen.queryByLabelText('District')).not.toBeInTheDocument()
+  expect(screen.queryByRole('columnheader', { name: 'Min' })).not.toBeInTheDocument()
+})

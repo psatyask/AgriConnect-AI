@@ -24,9 +24,14 @@
 - Market Intelligence page: crop, state, district, market pickers, table with date and source, history chart. Nothing is estimated; empty states are explicit and demo data is labeled.
 - 37 backend and 24 frontend tests.
 
+## Done (Phase 2, part 4: market prices, US)
+- USDA NASS Quick Stats adapter: monthly prices received by farmers per state (corn, soybeans, wheat, $/bushel). Skips suppressed values, other units, organic series, national and annual rows. Prices carry a `period` (daily/monthly).
+- India CSV import added because the data.gov.in API refused connections from the US; India is parked for now.
+- 44 backend and 25 frontend tests.
+
 ## Not verified yet
 - The Agmarknet adapter has never run against the real API (the build environment cannot reach it). Run `python -m app.prices.ingest probe` with a `DATA_GOV_IN_API_KEY` and fix the parser if the real field names differ. Test fixtures are invented format samples, not market data.
-- US prices (USDA NASS state-level + AMS Market News markets) are not built. US shows the labeled demo table.
+- The NASS adapter has not run against the real API either (build environment cannot reach it): run `probe-nass` with a key first. USDA AMS Market News (terminal/grain markets) is not built.
 
 ## Known gaps
 - Login has no rate limiting or email verification for password accounts yet.

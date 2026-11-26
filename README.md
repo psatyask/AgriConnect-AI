@@ -31,6 +31,14 @@ If the connection to data.gov.in fails (it may refuse connections from outside I
 
 The Market Intelligence page then shows reported mandi prices by state, district and market. Until data is loaded it says so and shows labeled demo data.
 
+## Market prices (United States)
+
+USDA publishes farm prices per state (monthly), not per county or city, so the US picker is crop > state. Get a free key at https://quickstats.nass.usda.gov/api, put it in `.env` as `NASS_API_KEY`, then:
+
+    cd backend
+    python -m app.prices.ingest probe-nass     # check the real response format once
+    python -m app.prices.ingest nass           # load monthly state prices (corn, soybeans, wheat)
+
 ## Test
 
     cd frontend && npm test && npm run build

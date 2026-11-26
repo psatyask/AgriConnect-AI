@@ -146,6 +146,8 @@ const es: Messages = {
     perUnit: "por {{unit}}",
     history: "Historial de precios",
     historyThin: "Aún no hay suficientes días de reportes para dibujar un historial.",
+    price: "Precio",
+    historyHintMonthly: "Un punto por mes: el precio promedio estatal recibido por los agricultores. Los meses sin reporte quedan en blanco.",
     historyHint: "Promedio diario de los precios modales reportados. Los días sin reporte quedan en blanco.",
     modalExplain: "Modal = el precio de operación más común ese día.",
   },

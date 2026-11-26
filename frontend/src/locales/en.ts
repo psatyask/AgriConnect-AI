@@ -144,6 +144,8 @@ const en = {
     perUnit: "per {{unit}}",
     history: "Price history",
     historyThin: "Not enough days of reports to draw a history yet.",
+    price: "Price",
+    historyHintMonthly: "One point per month: the state average price received by farmers. Months with no report are left blank.",
     historyHint: "Daily average of reported modal prices. Days with no report are left blank.",
     modalExplain: "Modal = the most common trading price on that day.",
   },

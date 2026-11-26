@@ -3,7 +3,7 @@ import { api } from './client'
 
 export interface PriceRow {
   state: string; district: string; market: string; variety: string; grade: string; date: string
-  min: number | null; max: number | null; modal: number | null; unit: string; currency: string; source: string; source_label: string
+  min: number | null; max: number | null; modal: number | null; unit: string; currency: string; period: 'daily' | 'monthly'; source: string; source_label: string
 }
 export interface LocationTree { as_of: string | null; states: { state: string; districts: { district: string; markets: string[] }[] }[] }
 export interface Scope { commodity: string; state: string; district: string; market: string }

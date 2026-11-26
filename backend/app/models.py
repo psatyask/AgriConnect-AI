@@ -123,4 +123,5 @@ class PriceObservation(Base):
     modal_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     unit: Mapped[str] = mapped_column(String(20))
     currency: Mapped[str] = mapped_column(String(3))
+    period: Mapped[str] = mapped_column(String(10), default="daily", server_default="daily")
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

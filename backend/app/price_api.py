@@ -15,7 +15,7 @@ Country = Annotated[str, Query(pattern=r"^[A-Z]{2}$")]
 Crop = Annotated[str, Query(pattern=r"^[a-z][a-z0-9_]{1,39}$")]
 Place = Annotated[str | None, Query(max_length=200)]
 
-SOURCES = {"agmarknet": "Agmarknet (Government of India)"}
+SOURCES = {"agmarknet": "Agmarknet (Government of India)", "nass": "USDA NASS, prices received by farmers"}
 
 
 def _scope(stmt, country: str, commodity: str, state: str | None, district: str | None, market: str | None):
@@ -50,7 +50,7 @@ def latest(db: Db, country: Country, commodity: Crop, state: Place = None, distr
         "state": r["state"], "district": r["district"], "market": r["market"], "variety": r["variety"], "grade": r["grade"],
         "date": r["obs_date"].isoformat(), "min": float(r["min_price"]) if r["min_price"] is not None else None,
         "max": float(r["max_price"]) if r["max_price"] is not None else None, "modal": float(r["modal_price"]) if r["modal_price"] is not None else None,
-        "unit": r["unit"], "currency": r["currency"], "source": r["source"], "source_label": SOURCES.get(r["source"], r["source"]),
+        "unit": r["unit"], "currency": r["currency"], "period": r["period"], "source": r["source"], "source_label": SOURCES.get(r["source"], r["source"]),
     } for r in rows]}
 
 

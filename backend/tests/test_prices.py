@@ -107,3 +107,54 @@ def test_api_errors_never_contain_the_key(monkeypatch):
     with pytest.raises(RuntimeError) as e:
         list(agmarknet.fetch_pages("Tomato"))
     assert "SECRETKEY123" not in str(e.value) and "csv FILE" in str(e.value)
+
+
+NASS_RAW = json.loads((Path(__file__).parent / "fixtures" / "nass_format_sample.json").read_text())["data"]
+
+
+def nass_records():
+    from app.prices import nass
+    return [r for r in map(nass.parse_record, NASS_RAW) if r]
+
+
+def test_nass_parser_keeps_only_monthly_state_dollar_per_bushel_prices():
+    recs = nass_records()
+    # kept: corn Oct, corn Sep, soybeans Oct. Dropped: (D), $/TON, organic, national, annual, oats.
+    assert sorted((r.state, r.commodity, r.obs_date.isoformat(), float(r.modal_price)) for r in recs) == [
+        ("Test State One", "corn", "2026-09-01", 3.95), ("Test State One", "corn", "2026-10-01", 4.1),
+        ("Test State Two", "soybeans", "2026-10-01", 10.25)]
+    assert all(r.unit == "bushel" and r.currency == "USD" and r.period == "monthly" and r.min_price is None for r in recs)
+
+
+def test_us_prices_through_the_api_are_state_level_and_labeled(client, monkeypatch):
+    from datetime import datetime, timezone
+    from app import price_api
+    monkeypatch.setattr(price_api, "utcnow", lambda: datetime(2026, 11, 27, tzinfo=timezone.utc))
+    with SessionLocal() as db:
+        upsert(db, nass_records())
+    body = client.get("/api/prices?country=US&commodity=corn").json()["items"]
+    assert [(i["state"], i["date"], i["modal"], i["period"], i["min"]) for i in body] == [("Test State One", "2026-10-01", 4.1, "monthly", None)]
+    assert body[0]["source_label"].startswith("USDA NASS")
+    loc = client.get("/api/prices/locations?country=US&commodity=corn").json()
+    assert [s["state"] for s in loc["states"]] == ["Test State One"]
+    hist = client.get("/api/prices/history?country=US&commodity=corn&state=Test State One&days=730").json()["points"]
+    assert [(p["date"], p["price"]) for p in hist] == [("2026-09-01", 3.95), ("2026-10-01", 4.1)]
+
+
+def test_duplicate_rows_in_one_batch_do_not_crash_the_upsert():
+    recs = nass_records()
+    with SessionLocal() as db:
+        assert upsert(db, recs + recs) == 3
+
+
+def test_nass_errors_never_contain_the_key(monkeypatch):
+    import pytest, requests
+    from app.config import settings
+    from app.prices import nass
+    monkeypatch.setattr(settings, "nass_api_key", "NASSSECRET9")
+    def boom(*a, **k):
+        raise requests.ConnectionError("failed ...?key=NASSSECRET9&format=JSON")
+    monkeypatch.setattr(requests, "get", boom)
+    with pytest.raises(RuntimeError) as e:
+        list(nass.fetch_rows())
+    assert "NASSSECRET9" not in str(e.value)

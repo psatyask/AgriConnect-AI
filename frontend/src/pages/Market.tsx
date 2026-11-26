@@ -88,7 +88,10 @@ export function Intelligence() {
   const states = locations.data?.states ?? []
   const districts = states.find((s) => s.state === scope.state)?.districts ?? []
   const markets = districts.find((d) => d.district === scope.district)?.markets ?? []
+  const hasDistricts = states.some((s) => s.districts.some((d) => d.district !== ''))
+  const hasMarkets = states.some((s) => s.districts.some((d) => d.markets.some((m) => m !== 'State average')))
   const rows = latest.data?.items ?? []
+  const showRange = rows.some((r) => r.min != null || r.max != null)
   const hasLive = rows.length > 0
   const pick = (patch: Partial<Scope>) => setScope((p) => ({ ...p, ...patch }))
   const sel = 'min-h-11 rounded-xl border px-3 text-sm'
@@ -106,28 +109,28 @@ export function Intelligence() {
           <select className={sel} style={style} value={scope.commodity} onChange={(e) => setScope({ commodity: e.target.value, state: '', district: '', market: '' })}>
             {region.commodities.map((c) => <option key={c.id} value={c.id}>{t(c.nameKey)}</option>)}</select></label>
         {field(t('prices.state'), scope.state, (v) => pick({ state: v, district: '', market: '' }), states.map((s) => s.state), states.length === 0)}
-        {field(t('prices.district'), scope.district, (v) => pick({ district: v, market: '' }), districts.map((d) => d.district), !scope.state)}
-        {field(t('prices.market'), scope.market, (v) => pick({ market: v }), markets, !scope.district)}
+        {hasDistricts && field(t('prices.district'), scope.district, (v) => pick({ district: v, market: '' }), districts.map((d) => d.district), !scope.state)}
+        {hasMarkets && field(t('prices.market'), scope.market, (v) => pick({ market: v }), markets, !scope.district)}
       </Card>
       {(latest.isError || locations.isError) && <p role="alert" className="mb-4 text-sm text-red-600">{t('prices.loadFail')}</p>}
       {hasLive && (
         <div className="grid gap-5 lg:grid-cols-2">
           <Card>
-            <p className="mb-2 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.asOf', { date: rows[0].date })} · {t('prices.source')}: {rows[0].source_label}</p>
+            <p className="mb-2 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.asOf', { date: rows[0].period === 'monthly' ? rows[0].date.slice(0, 7) : rows[0].date })} · {t('prices.source')}: {rows[0].source_label}</p>
             <div className="overflow-x-auto"><table className="w-full text-sm">
-              <thead><tr className="text-left" style={{ color: 'var(--muted)' }}><th className="py-2">{t('prices.market')}</th><th>{t('prices.variety')}</th><th>{t('prices.date')}</th><th>{t('prices.min')}</th><th>{t('prices.max')}</th><th>{t('prices.modal')}</th></tr></thead>
+              <thead><tr className="text-left" style={{ color: 'var(--muted)' }}><th className="py-2">{t('prices.market')}</th><th>{t('prices.variety')}</th><th>{t('prices.date')}</th>{showRange && <><th>{t('prices.min')}</th><th>{t('prices.max')}</th></>}<th>{showRange ? t('prices.modal') : t('prices.price')}</th></tr></thead>
               <tbody>{rows.map((r) => (
                 <tr key={`${r.market}-${r.variety}-${r.grade}`} className="border-t" style={{ borderColor: 'var(--border)' }}>
-                  <td className="py-2 font-semibold">{r.market}<div className="text-xs font-normal" style={{ color: 'var(--muted)' }}>{r.district}, {r.state}</div></td>
-                  <td>{r.variety || '—'}</td><td>{r.date}</td>
-                  <td>{r.min != null ? money(r.min) : '—'}</td><td>{r.max != null ? money(r.max) : '—'}</td>
+                  <td className="py-2 font-semibold">{r.market}<div className="text-xs font-normal" style={{ color: 'var(--muted)' }}>{[r.district, r.state].filter(Boolean).join(', ')}</div></td>
+                  <td>{r.variety || '—'}</td><td>{r.period === 'monthly' ? r.date.slice(0, 7) : r.date}</td>
+                  {showRange && <><td>{r.min != null ? money(r.min) : '—'}</td><td>{r.max != null ? money(r.max) : '—'}</td></>}
                   <td className="font-semibold">{r.modal != null ? money(r.modal) : '—'}</td></tr>))}</tbody>
             </table></div>
-            <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>{t('prices.perUnit', { unit: t(`units.${rows[0].unit}`) })} · {t('prices.modalExplain')} {t('pages.limits')}</p>
+            <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>{t('prices.perUnit', { unit: t(`units.${rows[0].unit}`) })} · {showRange && `${t('prices.modalExplain')} `}{t('pages.limits')}</p>
           </Card>
           <Card><b>{t('prices.history')}</b>
             {series.length > 1 ? <PriceChart data={series} demo={false} /> : <p className="mt-2 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.historyThin')}</p>}
-            <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t('prices.historyHint')}</p></Card>
+            <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t(rows[0].period === 'monthly' ? 'prices.historyHintMonthly' : 'prices.historyHint')}</p></Card>
         </div>)}
       {!hasLive && !latest.isError && latest.isSuccess && (
         <Card><p className="text-sm font-semibold">{t('prices.noData')}</p><p className="text-sm" style={{ color: 'var(--muted)' }}>{t('prices.noDataHint')}</p></Card>)}
