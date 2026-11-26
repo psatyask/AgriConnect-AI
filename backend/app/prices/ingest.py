@@ -65,9 +65,27 @@ def probe_nass() -> None:
     print("NASS returned no rows.")
 
 
+def _outline(x, name="root", depth=0) -> None:
+    pad = "  " * depth
+    if isinstance(x, dict):
+        print(f"{pad}{name}: object, keys={list(x)[:12]}")
+        for k, v in list(x.items())[:12]:
+            if isinstance(v, (dict, list)) and depth < 3:
+                _outline(v, k, depth + 1)
+    elif isinstance(x, list):
+        print(f"{pad}{name}: list of {len(x)}")
+        if x and depth < 3:
+            _outline(x[0], name + "[0]", depth + 1)
+            if isinstance(x[0], dict):
+                print(f"{pad}  first item: {json.dumps(x[0], default=str)[:600]}")
+
+
 def probe_ams(arg: str = "") -> None:
     if arg.isdigit():
-        print(json.dumps(ams.sample_report(arg), indent=1, default=str)[:6000])
+        data = ams.sample_report(arg)
+        Path(f"ams_{arg}.json").write_text(json.dumps(data, indent=1, default=str))
+        print(f"Saved the full response to ams_{arg}.json. Structure:")
+        _outline(data)
         return
     found = ams.list_reports(arg)
     for r in found[:150]:
