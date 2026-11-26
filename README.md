@@ -21,6 +21,14 @@ This builds the frontend when sources changed, applies database migrations, and 
 
 Google Cloud Console > Google Auth Platform: create an External app, then Clients > Web application with Authorized JavaScript origins `http://localhost:8000` and `http://localhost:5173`; add test users while in Testing mode. The browser gets a Google ID token; the backend verifies it with Google's library, keys the account on Google's `sub`, and issues its own httpOnly session cookie. Roles (farmer/buyer) are stored in the database and enforced on the server; `admin` can only be granted directly in the database. Email/password (argon2) is the fallback.
 
+## Market prices (India)
+
+1. Get a free API key at https://data.gov.in and put it in `.env` as `DATA_GOV_IN_API_KEY`.
+2. Check the real response format once: `cd backend && python -m app.prices.ingest probe`
+3. Load prices (re-run daily): `python -m app.prices.ingest run`
+
+The Market Intelligence page then shows reported mandi prices by state, district and market. Until data is loaded it says so and shows labeled demo data.
+
 ## Test
 
     cd frontend && npm test && npm run build

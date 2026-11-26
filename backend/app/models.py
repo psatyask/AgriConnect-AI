@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Numeric, String, Text
+from datetime import date
+
+from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -94,3 +96,31 @@ class Inquiry(Base):
 
     listing: Mapped[Listing] = relationship(back_populates="inquiries")
     buyer: Mapped[User] = relationship()
+
+
+class PriceObservation(Base):
+    """A wholesale price reported by an official source for one market, crop and day."""
+
+    __tablename__ = "price_observations"
+    __table_args__ = (
+        UniqueConstraint("source", "state", "district", "market", "commodity_raw", "variety", "grade", "obs_date", name="uq_price_observation"),
+        Index("ix_price_lookup", "country", "commodity", "state", "district", "market", "obs_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    country: Mapped[str] = mapped_column(String(2))
+    source: Mapped[str] = mapped_column(String(40))
+    state: Mapped[str] = mapped_column(String(100))
+    district: Mapped[str] = mapped_column(String(100), default="")
+    market: Mapped[str] = mapped_column(String(200))
+    commodity_raw: Mapped[str] = mapped_column(String(100))
+    commodity: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    variety: Mapped[str] = mapped_column(String(100), default="")
+    grade: Mapped[str] = mapped_column(String(40), default="")
+    obs_date: Mapped[date] = mapped_column(Date)
+    min_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    max_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    modal_price: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    unit: Mapped[str] = mapped_column(String(20))
+    currency: Mapped[str] = mapped_column(String(3))
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

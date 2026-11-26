@@ -1,0 +1,12 @@
+{
+  "_note": "FORMAT SAMPLE FOR PARSER TESTS ONLY. Field layout follows the data.gov.in Agmarknet dataset; every number and market here is INVENTED and is not real market data.",
+  "records": [
+    {"state": "Test State", "district": "Test District A", "market": "Test Mandi 1", "commodity": "Tomato", "variety": "Local", "grade": "FAQ", "arrival_date": "26/11/2026", "min_price": "1800", "max_price": "2600", "modal_price": "2200"},
+    {"state": "Test State", "district": "Test District A", "market": "Test Mandi 1", "commodity": "Onion", "variety": "Red", "grade": "FAQ", "arrival_date": "26/11/2026", "min_price": "1300", "max_price": "1900", "modal_price": "1600"},
+    {"State": "Test State", "District": "Test District B", "Market": "Test Mandi 2", "Commodity": "Tomato", "Variety": "Hybrid", "Grade": "FAQ", "Arrival_Date": "25/11/2026", "Min_x0020_Price": "2000", "Max_x0020_Price": "2400", "Modal_x0020_Price": "2250"},
+    {"state": "Test State", "district": "Test District B", "market": "Test Mandi 2", "commodity": "Green Chilli", "variety": "Other", "grade": "FAQ", "arrival_date": "26/11/2026", "min_price": "3000", "max_price": "4000", "modal_price": "3500"},
+    {"state": "Test State", "district": "Test District B", "market": "Test Mandi 2", "commodity": "Tomato", "variety": "Local", "grade": "FAQ", "arrival_date": "26/11/2026", "min_price": "0", "max_price": "0", "modal_price": "0"},
+    {"state": "Test State", "district": "Test District B", "market": "Test Mandi 2", "commodity": "Tomato", "variety": "Local", "grade": "FAQ", "arrival_date": "26/11/2026", "min_price": "3000", "max_price": "2000", "modal_price": "2500"},
+    {"state": "Test State", "district": "Test District B", "market": "Test Mandi 2", "commodity": "Tomato", "variety": "Local", "grade": "FAQ", "arrival_date": "not a date", "min_price": "1", "max_price": "2", "modal_price": "2"}
+  ]
+}

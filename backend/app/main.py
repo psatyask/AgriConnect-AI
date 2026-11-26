@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .auth import router as auth_router
 from .listings import router as listings_router
+from .price_api import router as prices_router
 from .config import ROOT, settings
 
 app = FastAPI(title="AgriConnect AI API", version="0.2.0")
@@ -28,6 +29,7 @@ async def reject_foreign_origins(request: Request, call_next):
 
 app.include_router(auth_router)
 app.include_router(listings_router)
+app.include_router(prices_router)
 
 
 @app.get("/api/health")
