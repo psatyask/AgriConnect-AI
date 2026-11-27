@@ -382,3 +382,24 @@ def test_ams_range_uses_the_exact_window_and_does_not_read_dates_as_a_day_count(
     ingest.run_ams(begin=d.fromisoformat(sys.argv[2]), end=d.fromisoformat(sys.argv[3]))
     assert "fetching 2026-07-22 to 2026-07-29" in capsys.readouterr().out
     assert asked == [("07/22/2026", "07/29/2026")]
+
+
+def test_lines_listed_twice_with_different_prices_are_both_kept_and_identical_rows_collapse(client, monkeypatch, capsys):
+    from decimal import Decimal
+    from app.prices import ams, ingest
+    base = {"report_date": "11/24/2026", "market_location_state": "GA", "market_location_name": "Atlanta Terminal Market", "commodity": "Apples",
+            "variety": "PINK LADY", "package": "cartons tray pack", "grade": "WA Extra Fancy", "low_price": "38", "high_price": "39"}
+    rows = [base, {**base, "low_price": "36", "high_price": "37"}, {**base, "low_price": "36", "high_price": "37"},  # an exact repeat
+            {**base, "variety": "GALA", "low_price": "30", "high_price": "31"}]
+    # an earlier import stored just one of the two lines under the plain description
+    with SessionLocal() as db:
+        ingest.upsert(db, [ams.parse_record(base)])
+    monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Test Terminal Market Fruit Prices"}])
+    monkeypatch.setattr(ams, "fetch_report_rows", lambda slug, begin, end: rows)
+    monkeypatch.setattr(sys, "argv", ["ingest", "ams", "3"])
+    ingest.run_ams()
+    ingest.run_ams()  # re-running changes nothing
+    capsys.readouterr()
+    with SessionLocal() as db:
+        got = sorted((o.variety, o.grade, float(o.min_price)) for o in db.query(PriceObservation).all())
+    assert got == [("GALA", "WA Extra Fancy", 30.0), ("PINK LADY", "WA Extra Fancy · price line 1 of 2", 36.0), ("PINK LADY", "WA Extra Fancy · price line 2 of 2", 38.0)]

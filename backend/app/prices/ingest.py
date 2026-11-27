@@ -17,6 +17,9 @@ from datetime import date, timedelta
 from pathlib import Path
 from collections import Counter
 
+from dataclasses import replace
+
+from sqlalchemy import and_, delete
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -28,6 +31,29 @@ from . import agmarknet, ams, nass
 from .base import PriceRecord
 
 KEYS = ["source", "state", "district", "market", "commodity_raw", "variety", "grade", "obs_date", "unit"]
+
+
+def split_lookalikes(batch: list[PriceRecord]) -> tuple[list[PriceRecord], list[tuple]]:
+    """Keep every real line. USDA sometimes lists two lines with identical descriptions but different prices (the order
+    swaps from day to day), and the database key cannot tell them apart. Such lines are kept side by side, numbered by price
+    ("price line 1 of 2" is the lower one). Rows identical in price too are plain duplicates and collapse into one.
+
+    Returns the records to store and the original keys of the split groups (their old single row must be removed).
+    """
+    groups: dict[tuple, dict[tuple, PriceRecord]] = {}
+    for r in batch:
+        groups.setdefault(tuple(getattr(r, k) for k in KEYS), {})[(r.min_price, r.max_price)] = r  # same price: later wins
+    out, split = [], []
+    for key, by_price in groups.items():
+        if len(by_price) == 1:
+            out.extend(by_price.values())
+            continue
+        split.append(key)
+        ordered = sorted(by_price.values(), key=lambda r: (r.min_price or 0, r.max_price or 0))
+        for i, r in enumerate(ordered, 1):
+            tag = f"price line {i} of {len(ordered)}"
+            out.append(replace(r, grade=f"{r.grade[:170]} · {tag}" if r.grade else tag))
+    return out, split
 
 
 def upsert(db: Session, records: list[PriceRecord]) -> int:
@@ -156,17 +182,20 @@ def run_ams(days: int | None = None, begin: date | None = None, end: date | None
                                 differ[f] += 1
                                 example.setdefault(f, (str(a.get(f)), str(b.get(f))))
                 seen[k] = r
+            batch, split = split_lookalikes(batch)
+            for key in split:  # an earlier import kept only one of these lines under the plain description: drop it
+                db.execute(delete(PriceObservation).where(and_(*[getattr(PriceObservation, f) == v for f, v in zip(KEYS, key)])))
             stored += upsert(db, batch)
     print(f"Done. {stored} price rows stored, {sum(unusable.values())} unusable rows, "
-          f"{sum(unmapped.values())} rows for products the app does not map, {collisions} rows with the same market, product, package, description and day as another (kept the last).")
+          f"{sum(unmapped.values())} rows for products the app does not map, {collisions} rows repeated another row's market, product, package, description and day.")
     if unusable:
         print("Unusable rows by reason:", ", ".join(f"{n} ({c})" for n, c in unusable.most_common()))
     if collisions:
-        print(f"Of the repeated rows, {len(conflicts)} had DIFFERENT prices (one of each pair was overwritten).")
+        print(f"Of those, {len(conflicts)} had DIFFERENT prices: both lines are kept, numbered by price (\"price line 1 of 2\"); identical rows count once.")
         for a, b in conflicts[:3]:
             print(f"  e.g. {a.market} | {a.commodity_raw} | {a.variety} | {a.grade} | {a.unit} | {a.obs_date}: {a.min_price}-{a.max_price} vs {b.min_price}-{b.max_price}")
     if conflicts:
-        print(f"{only_price} of those pairs differ ONLY in price (every other field identical).")
+        print(f"{only_price} of those pairs differ ONLY in price (every other field USDA gives is identical, so they are two real lines).")
     if differ:
         print("Fields that differ inside those pairs (field: pairs, example):")
         for f, n in differ.most_common(12):
