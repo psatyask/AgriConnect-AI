@@ -205,7 +205,7 @@ def test_ams_import_command_reports_unmapped_products_and_rejects_nothing_silent
     from app.prices import ams, ingest
     monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Test Terminal Market Vegetables Prices"}, {"slug_id": 2, "report_title": "Broken"}])
 
-    def fake(slug, begin, end):
+    def fake(slug, begin, end, gaps=None):
         if slug == "2":
             raise RuntimeError("MARS API returned HTTP 500 for reports/2/Report%20Details")
         return AMS_RAW
@@ -377,7 +377,7 @@ def test_ams_range_uses_the_exact_window_and_does_not_read_dates_as_a_day_count(
     from app.prices import ams, ingest
     monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Test Terminal Market Vegetables Prices"}])
     asked = []
-    monkeypatch.setattr(ams, "fetch_report_rows", lambda slug, begin, end: asked.append((begin, end)) or AMS_RAW)
+    monkeypatch.setattr(ams, "fetch_report_rows", lambda slug, begin, end, gaps=None: asked.append((begin, end)) or AMS_RAW)
     monkeypatch.setattr(sys, "argv", ["ingest", "ams-range", "2026-07-22", "2026-07-29"])  # exactly what the command line gives
     ingest.run_ams(begin=d.fromisoformat(sys.argv[2]), end=d.fromisoformat(sys.argv[3]))
     assert "fetching 2026-07-22 to 2026-07-29" in capsys.readouterr().out
@@ -395,7 +395,7 @@ def test_lines_listed_twice_with_different_prices_are_both_kept_and_identical_ro
     with SessionLocal() as db:
         ingest.upsert(db, [ams.parse_record(base)])
     monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Test Terminal Market Fruit Prices"}])
-    monkeypatch.setattr(ams, "fetch_report_rows", lambda slug, begin, end: rows)
+    monkeypatch.setattr(ams, "fetch_report_rows", lambda slug, begin, end, gaps=None: rows)
     monkeypatch.setattr(sys, "argv", ["ingest", "ams", "3"])
     ingest.run_ams()
     ingest.run_ams()  # re-running changes nothing
@@ -403,3 +403,59 @@ def test_lines_listed_twice_with_different_prices_are_both_kept_and_identical_ro
     with SessionLocal() as db:
         got = sorted((o.variety, o.grade, float(o.min_price)) for o in db.query(PriceObservation).all())
     assert got == [("GALA", "WA Extra Fancy", 30.0), ("PINK LADY", "WA Extra Fancy · price line 1 of 2", 36.0), ("PINK LADY", "WA Extra Fancy · price line 2 of 2", 38.0)]
+
+
+def test_mars_retries_a_temporary_500_then_splits_a_window_that_keeps_failing(monkeypatch):
+    from app.prices import ams
+    monkeypatch.setattr(ams.time, "sleep", lambda s: None)
+    calls = []
+
+    def rows(slug, begin, end, section="Report Details"):
+        calls.append((begin, end))
+        if (begin, end) == ("01/01/2026", "01/31/2026"):  # the whole month always fails, as a big request did for USDA
+            raise ams.MarsError("MARS API returned HTTP 500", transient=True)
+        return {"results": [{"report_date": begin}]}
+    monkeypatch.setattr(ams, "report_rows", rows)
+    gaps: list = []
+    got = ams.fetch_report_rows("1", "01/01/2026", "01/31/2026", gaps)
+    assert len(got) == 2 and not gaps and calls[:3] == [("01/01/2026", "01/31/2026")] * 3  # three tries, then halves
+    assert calls[3:] == [("01/01/2026", "01/16/2026"), ("01/17/2026", "01/31/2026")]
+
+
+def test_mars_windows_that_still_fail_are_listed_not_dropped_and_client_errors_are_not_retried(monkeypatch, capsys, client):
+    from app.prices import ams, ingest
+    monkeypatch.setattr(ams.time, "sleep", lambda s: None)
+    bad = {"01/01/2026"}
+    seen = []
+
+    def rows(slug, begin, end, section="Report Details"):
+        seen.append(begin)
+        if begin in bad:
+            raise ams.MarsError("MARS API returned HTTP 500", transient=True)
+        return {"results": []}
+    monkeypatch.setattr(ams, "report_rows", rows)
+    gaps: list = []
+    ams.fetch_report_rows("1", "01/01/2026", "01/05/2026", gaps)  # shorter than the split limit: no halving
+    assert gaps == [("01/01/2026", "01/05/2026", "MARS API returned HTTP 500")]
+    monkeypatch.setattr(ams, "report_rows", lambda *a, **k: (_ for _ in ()).throw(ams.MarsError("MARS API returned HTTP 404", transient=False)))
+    import pytest
+    with pytest.raises(ams.MarsError):
+        ams.fetch_report_rows("1", "01/01/2026", "01/05/2026")
+    # and the import prints the gap with the command that fills it
+    monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Test Terminal Market Fruit Prices"}])
+    monkeypatch.setattr(ams, "report_rows", rows)
+    monkeypatch.setattr(sys, "argv", ["ingest", "ams-range", "2026-01-01", "2026-01-05"])
+    from datetime import date as d
+    ingest.run_ams(begin=d(2026, 1, 1), end=d(2026, 1, 5))
+    out = capsys.readouterr().out
+    assert "INCOMPLETE" in out and "ams-range 2026-01-01 2026-01-05" in out
+
+
+def test_ams_range_can_be_limited_to_reports_whose_title_matches(client, monkeypatch, capsys):
+    from datetime import date as d
+    from app.prices import ams, ingest
+    monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Atlanta Terminal Market Fruit Prices"}, {"slug_id": 2, "report_title": "Philadelphia Terminal Market Fruit Prices"}])
+    asked = []
+    monkeypatch.setattr(ams, "fetch_report_rows", lambda slug, begin, end, gaps=None: asked.append(slug) or [])
+    ingest.run_ams(begin=d(2026, 1, 1), end=d(2026, 1, 5), only="philadelphia")
+    assert asked == ["2"] and "1 terminal market reports found" in capsys.readouterr().out

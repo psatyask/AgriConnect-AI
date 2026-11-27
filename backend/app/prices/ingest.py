@@ -6,7 +6,7 @@
     python -m app.prices.ingest nass         # US: load monthly state prices received (needs NASS_API_KEY)
     python -m app.prices.ingest ams [DAYS]   # US terminal market vegetable prices, last DAYS days (default 14); needs MARS_API_KEY
     python -m app.prices.ingest refresh      # refresh every configured source now (the running app also does this itself, see PRICE_REFRESH_HOURS)
-    python -m app.prices.ingest ams-range 2026-07-22 2026-07-29   # same, for an exact window
+    python -m app.prices.ingest ams-range 2026-07-22 2026-07-29 [TITLE_TEXT]   # same, for an exact window, optionally only reports whose title contains the text
     python -m app.prices.ingest probe-ams [KEYWORD|REPORT_ID [BEGIN [END]]]   # US daily markets: list reports, or show one report's raw shape
     python -m app.prices.ingest csv FILE [--since 2019-01-01]   # load a downloaded Agmarknet CSV (data.gov.in or CEDA), no API needed
 """
@@ -131,13 +131,13 @@ def probe_ams(arg: str = "") -> None:
     print(f"{len(found)} reports match" + (" (showing 150; add another word to narrow)" if len(found) > 150 else ""))
 
 
-def run_ams(days: int | None = None, begin: date | None = None, end: date | None = None) -> None:
+def run_ams(days: int | None = None, begin: date | None = None, end: date | None = None, only: str = "") -> None:
     """US terminal market prices (vegetables, fruit) for the last N days (default 14). Needs MARS_API_KEY."""
     if begin is None:
         days = days if days is not None else int(sys.argv[2]) if len(sys.argv) > 2 else 14
     end = end or date.today()
     begin = begin or end - timedelta(days=days)
-    reports = ams.terminal_reports()
+    reports = [r for r in ams.terminal_reports() if only.lower() in str(r.get("report_title", "")).lower()]
     print(f"{len(reports)} terminal market reports found; fetching {begin} to {end}")
     stored = collisions = 0
     unusable: Counter = Counter()
@@ -147,14 +147,17 @@ def run_ams(days: int | None = None, begin: date | None = None, end: date | None
     example: dict[str, tuple[str, str]] = {}
     unmapped: Counter = Counter()
     failed: list[str] = []
+    gaps: list[tuple[str, str, str, str]] = []
     with SessionLocal() as db:
         for rep in reports:
             title = str(rep.get("report_title", rep.get("slug_id")))
+            report_gaps: list[tuple[str, str, str]] = []
             try:
-                raws = ams.fetch_report_rows(str(rep["slug_id"]), begin.strftime("%m/%d/%Y"), end.strftime("%m/%d/%Y"))
+                raws = ams.fetch_report_rows(str(rep["slug_id"]), begin.strftime("%m/%d/%Y"), end.strftime("%m/%d/%Y"), report_gaps)
             except RuntimeError as exc:
                 failed.append(f"{title}: {exc}")
                 continue
+            gaps += [(title, *g) for g in report_gaps]
             batch: list[PriceRecord] = []
             raw_of: dict[int, dict] = {}
             for raw in raws:
@@ -202,6 +205,11 @@ def run_ams(days: int | None = None, begin: date | None = None, end: date | None
             print(f"  {f}: {n}, e.g. {example[f][0]!r} vs {example[f][1]!r}")
     if unmapped:
         print(f"Unmapped products ({len(unmapped)}), most common first:", ", ".join(f"{n} ({c})" for n, c in unmapped.most_common(60)))
+    if gaps:
+        print(f"INCOMPLETE: USDA kept returning errors for {len(gaps)} window(s), so these days are missing (everything else was stored):")
+        for title, a, b, why in gaps[:10]:
+            m1, d1, y1 = a.split("/"); m2, d2, y2 = b.split("/")
+            print(f"  {title}: {a} to {b} ({why}). Re-run later with: python -m app.prices.ingest ams-range {y1}-{m1}-{d1} {y2}-{m2}-{d2}")
     for f in failed[:10]:
         print("FAILED:", f)
     if stored == 0:
@@ -279,8 +287,8 @@ if __name__ == "__main__":
         load_csv(sys.argv[2], date.fromisoformat(sys.argv[4]) if len(sys.argv) == 5 else None)
     elif cmd == "ams":
         run_ams()
-    elif cmd == "ams-range" and len(sys.argv) == 4:  # a narrow window, e.g. to inspect one day's duplicates quickly
-        run_ams(begin=date.fromisoformat(sys.argv[2]), end=date.fromisoformat(sys.argv[3]))
+    elif cmd == "ams-range" and len(sys.argv) in (4, 5):  # a narrow window, e.g. to inspect one day's duplicates quickly
+        run_ams(begin=date.fromisoformat(sys.argv[2]), end=date.fromisoformat(sys.argv[3]), only=sys.argv[4] if len(sys.argv) == 5 else "")
     elif cmd == "refresh":
         from . import refresh
         for src, msg in refresh.refresh_once(force=True).items():
