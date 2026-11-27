@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import ListingCard from '../components/ListingCard'
 import { useListings } from '../api/listings'
-import { useLatestPrices, useLocations, useDirectionSignal, usePriceForecast, usePriceHistory, type Scope } from '../api/prices'
+import { useLatestPrices, useLocations, useDirectionSignal, usePriceForecast, useSignalOverview, usePriceHistory, type Scope } from '../api/prices'
 import { useRegion } from '../context/RegionContext'
 import { useLanguage } from '../context/LanguageContext'
 import { getDemo } from '../data/demo'
@@ -14,10 +15,10 @@ import { kgPerPackage } from '../utils/units'
 import CropIcon, { cropBg } from '../components/art/CropIcon'
 import { Card, DemoBadge, EmptyRegion } from '../components/ui'
 
-function Shell({ title, children }: { title: string; children: React.ReactNode }) {
+function Shell({ title, children, live }: { title: string; children: React.ReactNode; live?: boolean }) {
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
-      <div className="mb-5 flex items-center gap-3"><h1 className="font-display text-3xl font-extrabold">{title}</h1><DemoBadge /></div>
+      <div className="mb-5 flex items-center gap-3"><h1 className="font-display text-3xl font-extrabold">{title}</h1>{!live && <DemoBadge />}</div>
       {children}
     </main>
   )
@@ -85,7 +86,9 @@ export function Intelligence() {
   const { language } = useLanguage()
   const { region, money } = useMoney()
   const demo = getDemo(region.code)
-  const [scope, setScope] = useState<Scope>({ commodity: region.commodities[0].id, state: '', district: '', market: '' })
+  const [params] = useSearchParams()
+  const wanted = params.get('crop')
+  const [scope, setScope] = useState<Scope>({ commodity: region.commodities.some((c) => c.id === wanted) ? wanted! : region.commodities[0].id, state: '', district: '', market: '' })
   const locations = useLocations(region.code, scope.commodity)
   const latest = useLatestPrices(region.code, scope)
   const [vf, setVf] = useState(''), [line, setLine] = useState<Line | null>(null), [mode, setMode] = useState<'auto' | 'reported' | 'base'>('auto')
@@ -263,21 +266,31 @@ export function Intelligence() {
 export function Forecasting() {
   const { t } = useTranslation()
   const { region } = useMoney()
-  const demo = getDemo(region.code)
+  const ov = useSignalOverview(region.code)
+  const items = ov.data?.items ?? []
+  const name = (id: string) => t(region.commodities.find((c) => c.id === id)?.nameKey ?? 'home.cropLabel')
   return (
-    <Shell title={t('nav.forecasting')}>
-      {demo ? (
-        <div className="grid gap-5 lg:grid-cols-3">
-          <Card className="lg:col-span-2"><PriceChart data={demo.series} height={300} />
-            <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>Demo values only. Not a real forecast.</p></Card>
+    <Shell title={t("nav.forecasting")} live>
+      {(
+        <div className="space-y-4" data-testid="signals-page">
           <Card className="space-y-2 text-sm">
-            <b>Forecast details</b>
-            {['Predicted price', 'Lower bound', 'Upper bound', 'Model version', 'Training data cutoff', 'MAE / RMSE / WAPE'].map((k) => (
-              <div key={k} className="flex justify-between"><span style={{ color: 'var(--muted)' }}>{k}</span><span>[from trained model]</span></div>))}
-            <p className="pt-2 text-xs" style={{ color: 'var(--muted)' }}>A forecast is an estimate, not a guaranteed price. {t('pages.limits')}</p>
+            <p>{t('forecastPage.intro')}</p>
+            <p style={{ color: 'var(--muted)' }}>{t('forecastPage.how')}</p>
           </Card>
-        </div>
-      ) : <EmptyRegion />}
+          <Card>
+            {ov.isLoading ? <p className="text-sm" style={{ color: 'var(--muted)' }}>{t('prices.loading')}</p>
+              : items.length === 0 ? <p className="text-sm" style={{ color: 'var(--muted)' }}>{t('forecastPage.empty')}</p>
+              : (<table className="w-full text-sm">
+                  <thead><tr className="text-left" style={{ color: 'var(--muted)' }}><th className="py-2">{t('home.cropLabel')}</th><th>{t('forecastPage.up')}</th><th>{t('forecastPage.down')}</th><th>{t('forecastPage.evidence')}</th></tr></thead>
+                  <tbody>{items.map((i) => (
+                    <tr key={i.commodity} className="border-t" style={{ borderColor: 'var(--border)' }}>
+                      <td className="py-2"><Link className="font-semibold underline" to={`/intelligence?crop=${i.commodity}`}>{name(i.commodity)}</Link></td>
+                      <td className="tabular-nums">{i.up}</td><td className="tabular-nums">{i.down}</td>
+                      <td className="tabular-nums">{t('forecastPage.auc', { auc: Math.round(i.auc * 100), n: i.tests })}</td></tr>))}</tbody>
+                </table>)}
+            {items.length > 0 && <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>{t('forecastPage.note', { date: ov.data?.evaluated_through })}</p>}
+          </Card>
+        </div>)}
     </Shell>
   )
 }

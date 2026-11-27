@@ -108,6 +108,23 @@ def signal(db: Db, country: Country, commodity: Crop, market: Place = None, vari
                          "tests": ev.tests, "through": ev.evaluated_through.isoformat()}}
 
 
+@router.get("/signals")
+def signals(db: Db, country: Country) -> dict:
+    """Every product whose evidence passed, with how many of its current price lines lean up or down. Newest reads only."""
+    cutoff = utcnow().date() - timedelta(days=SIGNAL_MAX_AGE_DAYS)
+    evidence = {e.commodity: e for e in db.scalars(select(E).where(E.country == country, E.passes.is_(True)))}
+    tally: dict[str, dict] = {}
+    for r in db.scalars(select(S).where(S.country == country, S.as_of >= cutoff)):
+        t = tally.setdefault(r.commodity, {"up": 0, "down": 0, "even": 0, "as_of": r.as_of})
+        t["up" if r.p_up >= 0.6 else "down" if r.p_up <= 0.4 else "even"] += 1
+        t["as_of"] = max(t["as_of"], r.as_of)
+    items = [{"commodity": c, "auc": round(e.auc, 3), "auc_low": round(e.auc_low, 3), "tests": e.tests, **{k: v for k, v in tally[c].items() if k != "as_of"},
+              "as_of": tally[c]["as_of"].isoformat()} for c, e in evidence.items() if c in tally]
+    items.sort(key=lambda i: -i["auc"])
+    through = max((e.evaluated_through for e in evidence.values()), default=None)
+    return {"items": items, "evaluated_through": through.isoformat() if through else None}
+
+
 def _series(db, country, commodity, state, district, market, variety, unit, days) -> dict:
     """Daily average price in scope; days with no report are simply absent (no interpolation).
 

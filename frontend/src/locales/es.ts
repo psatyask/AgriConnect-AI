@@ -268,6 +268,16 @@ const es: Messages = {
     showAll: "Mostrar las {{n}} líneas de precio",
     truncated: "la fuente tiene {{total}} líneas en total, solo se cargaron las primeras {{shown}}",
   },
+  forecastPage: {
+    intro: 'Los pronósticos de precio a siete días no pasaron las pruebas con precios reales del USDA: ningún método superó a suponer que el precio se queda en el último informe, así que la página de Inteligencia muestra "Sin pronóstico" y explica por qué.',
+    how: 'Lo que sí pasó las pruebas es una señal de dirección para algunos productos: si un precio se mueve un 2 % o más la próxima semana, ¿es más probable que suba o que baje? Solo se listan los productos con resultados comprobados.',
+    empty: 'Ningún producto tiene una señal comprobada ahora. Ejecuta el trabajo offline (python -m ml.predict) tras cargar precios.',
+    up: 'Líneas que apuntan a subir',
+    down: 'Líneas que apuntan a bajar',
+    evidence: 'Precisión probada',
+    auc: '{{auc}} % ({{n}} movimientos)',
+    note: 'Precisión = cuántas veces, en fechas que el modelo no había visto, ordenó las subidas por encima de las bajadas (50 % es adivinar). Probado hasta el {{date}}. Haz clic en un producto para ver un mercado.',
+  },
   pages: {
     filters: 'Filtros',
     sort: 'Ordenar',

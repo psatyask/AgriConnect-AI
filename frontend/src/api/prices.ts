@@ -66,3 +66,8 @@ export const useDirectionSignal = (country: string, s: Scope, variety: string, u
       if (unit) p.set('unit', unit)
       return api<Signal>(`/api/prices/signal?${p}`)
     } })
+
+export interface SignalOverview { items: { commodity: string; auc: number; auc_low: number; tests: number; up: number; down: number; even: number; as_of: string }[]; evaluated_through: string | null }
+
+export const useSignalOverview = (country: string) =>
+  useQuery({ queryKey: [country, 'price-signals'], retry: false, queryFn: () => api<SignalOverview>(`/api/prices/signals?country=${country}`) })

@@ -266,6 +266,16 @@ const en = {
     showAll: "Show all {{n}} price lines",
     truncated: "the source has {{total}} lines in total, only the first {{shown}} were loaded",
   },
+  forecastPage: {
+    intro: 'Seven-day price forecasts did not pass testing on real USDA prices: no method beat simply assuming the price stays at the latest report, so the Intelligence page shows "No forecast" and says why.',
+    how: 'What did pass testing is a direction signal for some products: if a price moves 2% or more in the next week, is it more likely to go up or down? Only products with proven results are listed.',
+    empty: 'No product has a proven signal right now. Run the offline job (python -m ml.predict) after loading prices.',
+    up: 'Lines leaning up',
+    down: 'Lines leaning down',
+    evidence: 'Tested accuracy',
+    auc: '{{auc}}% ({{n}} moves)',
+    note: 'Accuracy = how often, on dates the model had not seen, it ranked price rises above falls (50% is guessing). Tested through {{date}}. Click a product to see one market.',
+  },
   pages: {
     filters: 'Filters',
     sort: 'Sort',

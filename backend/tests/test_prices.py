@@ -509,3 +509,17 @@ def test_signal_goes_quiet_when_old(client):
     with SessionLocal() as db:
         _signal_rows(db, as_of=utcnow().date() - timedelta(days=12))
     assert client.get("/api/prices/signal?country=US&commodity=tomato&market=Chicago").json()["reason"] == "stale"
+
+
+def test_signals_list_only_passing_products_with_fresh_reads(client):
+    from app.db import SessionLocal
+    with SessionLocal() as db:
+        _signal_rows(db)
+    r = client.get("/api/prices/signals?country=US").json()
+    assert [i["commodity"] for i in r["items"]] == ["tomato"]
+    assert r["items"][0]["up"] == 1 and r["items"][0]["even"] == 1 and r["items"][0]["tests"] == 900
+    with SessionLocal() as db:
+        from app.models import SignalEvidence
+        db.get(SignalEvidence, "tomato").passes = False
+        db.commit()
+    assert client.get("/api/prices/signals?country=US").json()["items"] == []

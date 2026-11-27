@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { AppProviders } from '../context/AppProviders'
-import { Intelligence } from '../pages/Market'
+import { Forecasting, Intelligence } from '../pages/Market'
 
 const TREE = { as_of: '2026-11-26', states: [{ state: 'Test State', districts: [{ district: 'Test District A', markets: ['Test Mandi 1'] }] }] }
 const ROW = { state: 'Test State', district: 'Test District A', market: 'Test Mandi 1', variety: 'Local', grade: 'FAQ', date: '2026-11-26',
@@ -269,4 +269,20 @@ test('no direction signal card when the product has no proven evidence', async (
   await pickMarket()
   await screen.findByTestId('forecast')
   expect(screen.queryByTestId('signal')).not.toBeInTheDocument()
+})
+
+test('the forecasting page lists proven products from the server and shows no demo values', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    const reply = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body }) as Response
+    if (url === '/api/auth/me') return reply(401, {})
+    if (url === '/api/config') return reply(200, { googleClientId: null })
+    if (url.startsWith('/api/prices/signals')) return reply(200, { evaluated_through: '2026-11-26', items: [{ commodity: 'tomato', auc: 0.75, auc_low: 0.66, tests: 900, up: 3, down: 1, even: 0, as_of: '2026-11-26' }] })
+    return reply(404, {})
+  }))
+  localStorage.setItem('agri.country', 'US')
+  render(<AppProviders><MemoryRouter><Forecasting /></MemoryRouter></AppProviders>)
+  const page = await screen.findByTestId('signals-page')
+  expect(await within(page).findByRole('link', { name: 'Tomato' })).toHaveAttribute('href', '/intelligence?crop=tomato')
+  expect(within(page).getByText(/75% \(900 moves\)/)).toBeInTheDocument()
+  expect(screen.queryByText(/Demo values only/)).not.toBeInTheDocument()
 })
