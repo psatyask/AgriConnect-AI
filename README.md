@@ -105,6 +105,8 @@ python -m ml.evaluate --models lgbm --windows 2 --max-train-rows 300000   # quic
 python -m ml.evaluate                                                     # all models, 4 test windows
 python -m ml.evaluate --null                                              # target shuffled inside each line: must show no skill
 python -m ml.evaluate --ablate cross                                      # without the other-markets features
+python -m ml.evaluate --task rmse                                         # squared error (rewards getting large moves right)
+python -m ml.evaluate --task move                                         # will the price move 2%+ in 7 days? AUC vs 'it moved last week'
 ```
 
 Target: log(price in 7 days / price today). Features (only what is known on that date): price changes over 1/3/7/14/28 days,

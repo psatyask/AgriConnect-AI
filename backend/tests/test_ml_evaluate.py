@@ -65,3 +65,27 @@ def test_a_market_that_first_appears_after_the_training_period_does_not_break_xg
     df = build(pd.concat([p, late], ignore_index=True))
     test = run(df, ["xgb", "lgbm"], 2, 200_000, FEATURES)
     assert "LATE MARKET" in set(test["line"].str.split("|").str[0]) and test["xgb"].notna().all()
+
+
+def test_squared_error_task_finds_a_planted_pattern_and_move_task_beats_chance_only_when_there_is_something_to_find(capsys):
+    from sklearn.metrics import roc_auc_score
+    from ml.evaluate import MOVE
+    df = build(walk_panel(mean_revert=0.25))
+    test = run(df, ["lgbm"], 2, 200_000, FEATURES, task="rmse")
+    assert 1 - np.sqrt(np.mean((test["y"] - test["lgbm"]) ** 2)) / np.sqrt(np.mean(test["y"] ** 2)) > 0.05
+    # volatility that comes in bursts: lines that have been moving keep moving, so "will it move" is learnable
+    rng, rows = np.random.default_rng(4), []
+    for li in range(10):
+        p, stormy = 30.0, False
+        for d in pd.date_range("2025-01-01", periods=420):
+            if rng.random() < 0.04:  # regimes last about 25 days
+                stormy = not stormy
+            p *= float(np.exp(rng.normal(0, 0.03 if stormy else 0.002)))
+            rows.append({"market": f"M{li}", "commodity": "tomato", "variety": "", "grade": "", "unit": "25 lb", "obs_date": d, "price": p})
+    t2 = run(build(pd.DataFrame(rows)), ["lgbm"], 2, 200_000, FEATURES, task="move")
+    moved = (t2["y"].abs() >= MOVE).astype(int)
+    assert 0.0 < moved.mean() < 1.0 and roc_auc_score(moved, t2["lgbm"]) > 0.6
+    # on plain random walks there is nothing to rank beyond chance
+    t3 = run(build(walk_panel(seed=6)), ["lgbm"], 2, 200_000, FEATURES, task="move")
+    m3 = (t3["y"].abs() >= MOVE).astype(int)
+    assert roc_auc_score(m3, t3["lgbm"]) < 0.56
