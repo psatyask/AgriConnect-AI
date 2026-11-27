@@ -6,6 +6,7 @@
     python -m app.prices.ingest nass         # US: load monthly state prices received (needs NASS_API_KEY)
     python -m app.prices.ingest ams [DAYS]   # US terminal market vegetable prices, last DAYS days (default 14); needs MARS_API_KEY
     python -m app.prices.ingest refresh      # refresh every configured source now (the running app also does this itself, see PRICE_REFRESH_HOURS)
+    python -m app.prices.ingest ams-range 2026-07-22 2026-07-29   # same, for an exact window
     python -m app.prices.ingest probe-ams [KEYWORD|REPORT_ID [BEGIN [END]]]   # US daily markets: list reports, or show one report's raw shape
     python -m app.prices.ingest csv FILE [--since 2019-01-01]   # load a downloaded Agmarknet CSV (data.gov.in or CEDA), no API needed
 """
@@ -104,16 +105,18 @@ def probe_ams(arg: str = "") -> None:
     print(f"{len(found)} reports match" + (" (showing 150; add another word to narrow)" if len(found) > 150 else ""))
 
 
-def run_ams(days: int | None = None) -> None:
+def run_ams(days: int | None = None, begin: date | None = None, end: date | None = None) -> None:
     """US terminal market prices (vegetables, fruit) for the last N days (default 14). Needs MARS_API_KEY."""
     days = days if days is not None else int(sys.argv[2]) if len(sys.argv) > 2 else 14
-    end, begin = date.today(), date.today() - timedelta(days=days)
+    end = end or date.today()
+    begin = begin or end - timedelta(days=days)
     reports = ams.terminal_reports()
     print(f"{len(reports)} terminal market reports found; fetching {begin} to {end}")
     stored = collisions = 0
     unusable: Counter = Counter()
     conflicts: list[tuple[PriceRecord, PriceRecord]] = []
     differ: Counter = Counter()
+    only_price = 0
     example: dict[str, tuple[str, str]] = {}
     unmapped: Counter = Counter()
     failed: list[str] = []
@@ -144,8 +147,11 @@ def run_ams(days: int | None = None) -> None:
                     if (seen[k].min_price, seen[k].max_price) != (r.min_price, r.max_price):
                         conflicts.append((seen[k], r))
                         a, b = raw_of[id(seen[k])], raw_of[id(r)]
+                        fields = [f for f in ams.differing_fields(a, b) if f not in ("low_price", "high_price", "mostly_low_price", "mostly_high_price")]
+                        if not fields:
+                            only_price += 1
                         for f in ams.differing_fields(a, b):
-                            if f not in ("low_price", "high_price", "mostly_low_price", "mostly_high_price", "report_date", "published_date"):
+                            if f not in ("low_price", "high_price", "mostly_low_price", "mostly_high_price"):
                                 differ[f] += 1
                                 example.setdefault(f, (str(a.get(f)), str(b.get(f))))
                 seen[k] = r
@@ -158,6 +164,8 @@ def run_ams(days: int | None = None) -> None:
         print(f"Of the repeated rows, {len(conflicts)} had DIFFERENT prices (one of each pair was overwritten).")
         for a, b in conflicts[:3]:
             print(f"  e.g. {a.market} | {a.commodity_raw} | {a.variety} | {a.grade} | {a.unit} | {a.obs_date}: {a.min_price}-{a.max_price} vs {b.min_price}-{b.max_price}")
+    if conflicts:
+        print(f"{only_price} of those pairs differ ONLY in price (every other field identical).")
     if differ:
         print("Fields that differ inside those pairs (field: pairs, example):")
         for f, n in differ.most_common(12):
@@ -235,12 +243,14 @@ def migrate() -> None:
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    if cmd in ("run", "nass", "csv", "ams", "refresh"):
+    if cmd in ("run", "nass", "csv", "ams", "ams-range", "refresh"):
         migrate()
     if cmd == "csv" and len(sys.argv) in (3, 5) and (len(sys.argv) == 3 or sys.argv[3] == "--since"):
         load_csv(sys.argv[2], date.fromisoformat(sys.argv[4]) if len(sys.argv) == 5 else None)
     elif cmd == "ams":
         run_ams()
+    elif cmd == "ams-range" and len(sys.argv) == 4:  # a narrow window, e.g. to inspect one day's duplicates quickly
+        run_ams(begin=date.fromisoformat(sys.argv[2]), end=date.fromisoformat(sys.argv[3]))
     elif cmd == "refresh":
         from . import refresh
         for src, msg in refresh.refresh_once(force=True).items():

@@ -68,7 +68,7 @@ def history(db: Db, country: Country, commodity: Crop, state: Place = None, dist
 def forecast(db: Db, country: Country, commodity: Crop, state: Place = None, district: Place = None, market: Place = None,
              variety: Place = None, unit: Place = None) -> dict:
     """A 7-day-ahead price, only when it beat "same as the latest report" on past dates (see app/forecast.py)."""
-    series = _series(db, country, commodity, state, district, market, variety, unit, 365)
+    series = _series(db, country, commodity, state, district, market, variety, unit, 1100)  # long enough to test last year's pattern
     if series["needs"]:
         return {"status": "no_forecast", "reason": f"needs_{series['needs']}", "basis": series["basis"], "unit": series["unit"]}
     pts = [(date.fromisoformat(p["date"]), p["price"]) for p in series["points"]]

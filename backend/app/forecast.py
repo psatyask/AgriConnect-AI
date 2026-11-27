@@ -5,7 +5,8 @@ Nothing here is trained on invented data and nothing is shown unless the evidenc
 * Series: one daily price line (market, product, package, variety), the same one the history chart draws.
 * Baseline: "the next reading equals the latest report" (naive). With ~90 days of history there is no previous season,
   so a seasonal baseline cannot be tested yet; the module says so instead of pretending.
-* Candidates: 5-report average, exponential smoothing, damped recent trend. Each is scored on past dates using only
+* Candidates: 5-report average, exponential smoothing, damped recent trend and, once a year of earlier history is stored,
+  last year's price for the same week and today's price plus last year's change. Each is scored on past dates using only
   the data that existed at that date (rolling origin).
 * Split in time order, 50% / 25% / 25%: the first part picks the best candidate, the second is the gate (must beat the
   baseline by MIN_SKILL), the last is a holdout (MIN_HOLDOUT_SKILL), and it must be closer than the baseline on MIN_WIN_RATE
@@ -31,26 +32,52 @@ CANDIDATES = ("ma5", "ses", "trend")
 Point = tuple[date, float]
 
 
-def _ses(values: list[float], alpha: float = 0.3) -> float:
-    level = values[0]
-    for v in values[1:]:
+SEASON_DAYS = 364     # 52 weeks: same weekday one year earlier
+SEASON_WIDTH = 3      # average the reports within +/- 3 days of that date, so one noisy day does not set the forecast
+SEASONAL = ("seas", "seas_adj")
+BASE_CANDIDATES = ("ma5", "ses", "trend")
+CANDIDATES = BASE_CANDIDATES + SEASONAL  # seasonal ones only exist when a full year of earlier history is stored
+
+
+def _ses_levels(values: list[float], alpha: float = 0.3) -> list[float]:
+    """Exponential smoothing level after each report, computed once so every test date costs O(1)."""
+    out, level = [], values[0]
+    for v in values:
         level = alpha * v + (1 - alpha) * level
-    return level
+        out.append(level)
+    out[0] = values[0]
+    return out
 
 
-def predict(hist: list[Point], h: int = HORIZON_DAYS) -> dict[str, float]:
-    """Every method's value for the date `h` days after the last report, from `hist` only."""
-    vals = [v for _, v in hist]
-    last_day = hist[-1][0]
-    out = {"naive": vals[-1], "ma5": mean(vals[-5:]), "ses": _ses(vals), "trend": vals[-1]}
-    window = [(( d - last_day).days, v) for d, v in hist if (last_day - d).days <= 14]
+def _season_ref(by_date: dict[date, float], day: date) -> float | None:
+    near = [by_date[d] for k in range(-SEASON_WIDTH, SEASON_WIDTH + 1) if (d := day - timedelta(days=SEASON_DAYS - k)) in by_date]
+    return mean(near) if near else None
+
+
+def _predict_at(points: list[Point], i: int, levels: list[float], by_date: dict[date, float], h: int) -> dict[str, float]:
+    """Every method's value for `h` days after report i, using reports 0..i only (the seasonal lookups are all earlier dates)."""
+    day, last = points[i]
+    out = {"naive": last, "ma5": mean(v for _, v in points[max(0, i - 4): i + 1]), "ses": levels[i], "trend": last}
+    window = [((d - day).days, v) for d, v in points[max(0, i - 20): i + 1] if (day - d).days <= 14]
     if len(window) >= 5:
         mx, my = mean(x for x, _ in window), mean(y for _, y in window)
         sxx = sum((x - mx) ** 2 for x, _ in window)
         if sxx:
             slope = sum((x - mx) * (y - my) for x, y in window) / sxx  # price change per day
-            out["trend"] = vals[-1] + 0.5 * slope * h  # damped: recent drift rarely continues in full
+            out["trend"] = last + 0.5 * slope * h  # damped: recent drift rarely continues in full
+    target = day + timedelta(days=h)
+    ref_t = _season_ref(by_date, target)
+    ref_0 = _season_ref(by_date, day)
+    if ref_t is not None:
+        out["seas"] = ref_t                                   # what this time of year looked like last year
+        if ref_0 is not None:
+            out["seas_adj"] = last + (ref_t - ref_0)          # today's price plus last year's change over the same week
     return {k: max(0.0, v) for k, v in out.items()}
+
+
+def predict(hist: list[Point], h: int = HORIZON_DAYS) -> dict[str, float]:
+    """Every method's value for the date `h` days after the last report, from `hist` only."""
+    return _predict_at(hist, len(hist) - 1, _ses_levels([v for _, v in hist]), dict(hist), h)
 
 
 @dataclass
@@ -75,18 +102,23 @@ def _skill(f: Folds, model: str) -> float | None:
 
 
 def collect_folds(points: list[Point], h: int = HORIZON_DAYS) -> Folds:
-    """Rolling-origin tests: at each report date, predict the price h days later and keep what actually happened."""
-    by_date = dict(points)
-    folds = Folds([], {k: [] for k in ("naive", *CANDIDATES)})
+    """Rolling-origin tests: at each report date, predict the price h days later and keep what actually happened.
+
+    With a year or more of earlier history, only dates where the seasonal methods can be computed are used, so every
+    method is scored on the same dates. Otherwise the seasonal methods are left out.
+    """
+    by_date, levels = dict(points), _ses_levels([v for _, v in points])
+    rows = []
     for i in range(MIN_TRAIN - 1, len(points)):
         target = points[i][0] + timedelta(days=h)
-        if target not in by_date:
-            continue
-        p = predict(points[: i + 1], h)
-        folds.actual.append(by_date[target])
-        for k in folds.preds:
-            folds.preds[k].append(p[k])
-    return folds
+        if target in by_date:
+            rows.append((by_date[target], _predict_at(points, i, levels, by_date, h)))
+    seasonal_rows = [r for r in rows if all(k in r[1] for k in SEASONAL)]
+    if len(seasonal_rows) >= 3 * MIN_FOLDS:
+        rows, keys = seasonal_rows, ("naive", *CANDIDATES)
+    else:
+        keys = ("naive", *BASE_CANDIDATES)
+    return Folds([a for a, _ in rows], {k: [p[k] for _, p in rows] for k in keys})
 
 
 def evaluate(points: list[Point], today: date | None = None, h: int = HORIZON_DAYS) -> dict:
@@ -104,7 +136,7 @@ def evaluate(points: list[Point], today: date | None = None, h: int = HORIZON_DA
     select, gate, hold = _slice(f, 0, a), _slice(f, a, b), _slice(f, b, n)
     if len(gate.actual) < MIN_FOLDS or len(hold.actual) < MIN_FOLDS:
         return {**base, "status": "no_forecast", "reason": "too_little_history", "tests": n}
-    model = min(CANDIDATES, key=lambda k: _mae(select.actual, select.preds[k]))
+    model = min((k for k in f.preds if k != "naive"), key=lambda k: _mae(select.actual, select.preds[k]))
     gate_skill, hold_skill = _skill(gate, model), _skill(hold, model)
     evidence = {**base, "model": model, "tests": n, "gate_skill": gate_skill, "holdout_skill": hold_skill,
                 "holdout_tests": len(hold.actual), "baseline_error": _mae(hold.actual, hold.preds["naive"]),

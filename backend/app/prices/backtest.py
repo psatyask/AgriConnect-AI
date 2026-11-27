@@ -1,6 +1,6 @@
 """Run the forecast test over every stored price line and print the evidence.
 
-    python -m app.prices.backtest [DAYS]      (default: all stored history up to 365 days)
+    python -m app.prices.backtest [DAYS]      (default: all stored history, up to 1100 days)
 
 The numbers printed here are the ones to quote: they come from the real stored prices, scored on dates the model had
 not seen. Skill = 1 - (model's average error / "same as the latest report" average error); 0 means no better.
@@ -19,7 +19,7 @@ from ..forecast import MIN_HOLDOUT_SKILL, MIN_SKILL, MIN_WIN_RATE, evaluate, nul
 from ..models import PriceObservation as P
 
 
-def load_series(db, days: int = 365, country: str = "US") -> dict[tuple, list[tuple[date, float]]]:
+def load_series(db, days: int = 1100, country: str = "US") -> dict[tuple, list[tuple[date, float]]]:
     value = func.coalesce(P.modal_price, (P.min_price + P.max_price) / 2, P.min_price, P.max_price)
     since = date.today() - timedelta(days=days)
     rows = db.execute(select(P.market, P.commodity, P.variety, P.unit, P.obs_date, func.avg(value))
@@ -32,7 +32,7 @@ def load_series(db, days: int = 365, country: str = "US") -> dict[tuple, list[tu
 
 
 def main() -> None:
-    days = int(sys.argv[1]) if len(sys.argv) > 1 else 365
+    days = int(sys.argv[1]) if len(sys.argv) > 1 else 1100
     with SessionLocal() as db:
         all_series = load_series(db, days)
     results = {k: evaluate(v, today=date.today()) for k, v in all_series.items()}
@@ -54,9 +54,14 @@ def main() -> None:
         print(f"For comparison, {luck:.1%} of simulated random walks of {n_typ} reports (nothing to predict) pass the same check by luck alone. "
               "Only a pass rate clearly above that is evidence of real skill.")
         print("Models chosen:", ", ".join(f"{n} {k}" for k, n in Counter(r['model'] for r in served).most_common()))
+        by_crop = Counter(k[1] for k, r in results.items() if r["status"] == "ok")
+        tested_crop = Counter(k[1] for k, r in results.items() if r.get("holdout_skill") is not None)
+        print("Forecast offered by crop (passed / tested):", ", ".join(f"{c} {n}/{tested_crop[c]}" for c, n in by_crop.most_common(15)))
     else:
         print("No line passed the evidence check, so the app offers no forecasts yet.")
-    print("Note: with under a year of history a seasonal baseline cannot be tested; load more history (ingest ams 365) to extend this.")
+    seasonal = sum(1 for r in results.values() if r.get("history_reports", 0) >= 400)
+    print(f"{seasonal} lines have over a year of reports, so last year's pattern could be tested on them; load older data with "
+          "'ingest ams-range YYYY-MM-DD YYYY-MM-DD' to extend this.")
 
 
 if __name__ == "__main__":

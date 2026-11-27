@@ -110,3 +110,22 @@ def test_the_gate_lets_almost_no_random_walks_through():
     from app.forecast import null_pass_rate
     rate, tested = null_pass_rate(90, trials=400, seed=1)
     assert tested >= 380 and rate <= 0.04, f"{rate:.1%} of random walks got a forecast"
+
+
+def test_a_real_yearly_cycle_is_forecast_from_last_years_pattern_once_two_years_are_stored():
+    import math
+    rng = random.Random(7)
+    vals = [30 + 10 * math.sin(2 * math.pi * i / 364) + rng.gauss(0, 0.6) for i in range(800)]
+    r = evaluate(series(vals, skip_weekends=False))
+    assert r["status"] == "ok" and r["model"] in ("seas", "seas_adj") and r["holdout_skill"] >= 0.10
+
+
+def test_the_seasonal_methods_are_left_out_when_less_than_a_year_is_stored():
+    from app.forecast import collect_folds
+    assert set(collect_folds(series([20.0 + i % 5 for i in range(120)], skip_weekends=False)).preds) == {"naive", "ma5", "ses", "trend"}
+
+
+def test_the_gate_also_holds_with_a_long_history_and_seasonal_candidates():
+    from app.forecast import null_pass_rate
+    rate, tested = null_pass_rate(500, trials=150, seed=2)
+    assert tested >= 140 and rate <= 0.05

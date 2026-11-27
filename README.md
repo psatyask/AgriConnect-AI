@@ -71,9 +71,11 @@ See `docs/` for architecture, plan and status.
 Market Intelligence shows a 7-day-ahead price for a single price line (one market, product, package and variety) **only when
 it has beaten a plain baseline on past dates**. Otherwise it says why there is no forecast and shows no number.
 
-- **Baseline:** "the next price equals the latest report". With about 90 days of history a seasonal baseline (same time last
-  year) cannot be tested; load more history with `python -m app.prices.ingest ams 365` to extend the evidence.
-- **Candidates:** 5-report average, exponential smoothing, damped recent trend (`backend/app/forecast.py`, no ML dependencies).
+- **Baseline:** "the next price equals the latest report". Everything else must beat it.
+- **Candidates:** 5-report average, exponential smoothing, damped recent trend and, once a year or more of earlier history is
+  stored, last year's price for the same week and today's price plus last year's change over that week
+  (`backend/app/forecast.py`, no ML dependencies). Load older data with
+  `python -m app.prices.ingest ams-range 2024-11-27 2025-11-26` (any window, run it once per year).
 - **Test:** rolling origin, using only data that existed at each past date. Dates are split in time order 50% / 25% / 25%:
   the first part picks the best candidate, the second is the gate (at least 15% lower average error than the baseline), the
   last is a holdout (at least 10%), and the method must be closer than the baseline on 65% of those tests. The skill shown to
