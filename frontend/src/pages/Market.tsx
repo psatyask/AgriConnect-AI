@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ListingCard from '../components/ListingCard'
 import { useListings } from '../api/listings'
-import { useLatestPrices, useLocations, usePriceHistory, type Scope } from '../api/prices'
+import { useLatestPrices, useLocations, usePriceForecast, usePriceHistory, type Scope } from '../api/prices'
 import { useRegion } from '../context/RegionContext'
 import { useLanguage } from '../context/LanguageContext'
 import { getDemo } from '../data/demo'
@@ -122,6 +122,8 @@ export function Intelligence() {
   const topSrc = top ? { variety: top.variety, unit: top.srcUnit ?? top.unit } : null
   const chosen: Line | null = line && rows.some((r) => r.variety === line.variety && r.unit === line.unit) ? line : topSrc
   const history = usePriceHistory(region.code, scope, chosen?.variety ?? '', chosen?.unit ?? '')
+  const dailyOnly = (rows[0] ?? all[0])?.period !== 'monthly'
+  const fc = usePriceForecast(region.code, scope, chosen?.variety ?? '', chosen?.unit ?? '', !!chosen && !!history.data && !history.data.needs && dailyOnly)
   const showRange = rows.some((r) => r.min != null || r.max != null)
   const showModal = rows.some((r) => r.modal != null)  // USDA terminal markets report a low-high range, never a modal price
   const showMarket = !scope.market  // name the market on each line unless one market is already chosen
@@ -138,6 +140,12 @@ export function Intelligence() {
   const chartF = chartKg != null ? (baseUnit.toKg as number) / chartKg : 1  // the chart is converted the same way as the list
   const chartUnit = chartKg != null ? baseUnit.id : chosen?.unit ?? ''
   const points = (history.data?.points ?? []).map((p) => ({ ...p, price: p.price * chartF }))
+  const f = fc.data?.status === 'ok' ? fc.data : null
+  const chartData = points.map((p) => ({ label: p.date.slice(5), price: p.price, forecast: null as number | null, band: null as [number, number] | null }))
+  if (f && f.value != null && f.low != null && f.high != null && f.target_date && chartData.length) {
+    chartData[chartData.length - 1].forecast = chartData[chartData.length - 1].price  // joins the dashed line to the last report
+    chartData.push({ label: f.target_date.slice(5), price: null as unknown as number, forecast: f.value * chartF, band: [f.low * chartF, f.high * chartF] })
+  }
   const lastPt = points.at(-1), firstPt = points[0]
   const delta = lastPt && firstPt && points.length > 1 ? Math.round((lastPt.price - firstPt.price) * 100) / 100 : null
   const pickLine = (l: Line) => {
@@ -193,8 +201,18 @@ export function Intelligence() {
                   {t(delta > 0 ? 'prices.trendUp' : delta < 0 ? 'prices.trendDown' : 'prices.trendFlat', { amount: money(Math.abs(delta)), date: firstPt.date })}</p>)}
               {history.isLoading ? <div aria-busy="true" className="mt-3 h-56 animate-pulse rounded-lg" style={{ background: 'var(--border)' }}><span className="sr-only">{t('prices.loading')}</span></div>
                 : history.data?.needs ? <p className="mt-3 text-sm" style={{ color: 'var(--muted)' }}>{t(history.data.needs === 'unit' ? 'prices.historyPickUnit' : 'prices.historyPickVariety')}</p>
-                : points.length > 1 ? <div className="mt-2"><PriceChart data={points.map((p) => ({ label: p.date.slice(5), price: p.price, forecast: null }))} demo={false} /></div>
+                : points.length > 1 ? <div className="mt-2"><PriceChart data={chartData} demo={false} /></div>
                   : <p className="mt-3 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.historyThin')}</p>}
+              {history.data && !history.data.needs && points.length > 1 && (
+                <div className="mt-3 rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--border)' }} data-testid="forecast">
+                  <b>{t('prices.forecast.title')}</b>
+                  {!dailyOnly ? <p style={{ color: 'var(--muted)' }}>{t('prices.forecast.none.daily_only')}</p>
+                    : fc.isLoading ? <p style={{ color: 'var(--muted)' }}>{t('prices.loading')}</p>
+                    : f && f.value != null ? (<>
+                        <p className="font-semibold tabular-nums">{t('prices.forecast.ok', { value: money(f.value * chartF), date: f.target_date, low: money((f.low ?? f.value) * chartF), high: money((f.high ?? f.value) * chartF) })}</p>
+                        <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('prices.forecast.evidence', { model: t(`prices.forecast.model.${f.model}`), skill: Math.round((f.holdout_skill ?? 0) * 100), n: f.holdout_tests })} {t('prices.forecast.range')}</p></>)
+                    : fc.data ? <p style={{ color: 'var(--muted)' }}>{t(`prices.forecast.none.${fc.data.reason}`, { defaultValue: t('prices.forecast.none.too_little_history') })}</p> : null}
+                </div>)}
               {history.data && <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t(first.period === 'monthly' ? 'prices.historyHintMonthly' : history.data?.basis === 'midpoint' ? 'prices.historyHintMid' : 'prices.historyHint', { unit: unitLabel(chartUnit || (history.data?.unit ?? first.unit)) })}</p>}
             </Card>
           </div>

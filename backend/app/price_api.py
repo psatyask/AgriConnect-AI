@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .db import get_db
+from .forecast import evaluate
 from .models import PriceObservation as P, utcnow
 
 router = APIRouter(prefix="/api/prices")
@@ -60,6 +61,21 @@ def latest(db: Db, country: Country, commodity: Crop, state: Place = None, distr
 @router.get("/history")
 def history(db: Db, country: Country, commodity: Crop, state: Place = None, district: Place = None, market: Place = None,
             variety: Place = None, unit: Place = None, days: Annotated[int, Query(ge=7, le=730)] = 90) -> dict:
+    return _series(db, country, commodity, state, district, market, variety, unit, days)
+
+
+@router.get("/forecast")
+def forecast(db: Db, country: Country, commodity: Crop, state: Place = None, district: Place = None, market: Place = None,
+             variety: Place = None, unit: Place = None) -> dict:
+    """A 7-day-ahead price, only when it beat "same as the latest report" on past dates (see app/forecast.py)."""
+    series = _series(db, country, commodity, state, district, market, variety, unit, 365)
+    if series["needs"]:
+        return {"status": "no_forecast", "reason": f"needs_{series['needs']}", "basis": series["basis"], "unit": series["unit"]}
+    pts = [(date.fromisoformat(p["date"]), p["price"]) for p in series["points"]]
+    return {**evaluate(pts, today=utcnow().date()), "basis": series["basis"], "unit": series["unit"]}
+
+
+def _series(db, country, commodity, state, district, market, variety, unit, days) -> dict:
     """Daily average price in scope; days with no report are simply absent (no interpolation).
 
     Sources with a modal price are charted by modal. Range-only sources (USDA terminal markets) are charted by the midpoint

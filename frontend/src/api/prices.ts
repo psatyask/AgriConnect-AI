@@ -35,3 +35,19 @@ export const usePriceHistory = (country: string, s: Scope, variety = '', unit = 
       if (unit) p.set('unit', unit)
       return api<History>(`/api/prices/history?${p}&days=180`)
     } })
+
+export interface Forecast {
+  status: 'ok' | 'no_forecast'; reason?: string; basis?: 'modal' | 'midpoint'; unit?: string | null
+  model?: 'ma5' | 'ses' | 'trend'; value?: number; low?: number; high?: number; target_date?: string
+  holdout_skill?: number; holdout_tests?: number; tests?: number; horizon_days: number
+}
+
+/** Only asked for once a single price line is chosen; the server decides whether the evidence supports a forecast. */
+export const usePriceForecast = (country: string, s: Scope, variety: string, unit: string, enabled: boolean) =>
+  useQuery({ queryKey: [country, 'price-forecast', s, variety, unit], retry: false, enabled,
+    queryFn: () => {
+      const p = qs(country, s)
+      if (variety) p.set('variety', variety)
+      if (unit) p.set('unit', unit)
+      return api<Forecast>(`/api/prices/forecast?${p}`)
+    } })

@@ -13,8 +13,8 @@ const TERMINAL = { as_of: '2026-11-23', states: [{ state: 'Test State One', dist
 const TBASE = { state: 'Test State One', district: '', market: 'Test Terminal Market', variety: 'ROUND TYPE', grade: '', date: '2026-11-23', modal: null, currency: 'USD', period: 'daily',
   source: 'ams', source_label: 'USDA AMS Market News, terminal markets' }
 
-interface Mock { rows: unknown[]; tree?: unknown; total?: number; checked?: string | null; history?: (url: string) => unknown }
-function mock({ rows, tree = TREE, total, checked = null, history = () => HIST }: Mock) {
+interface Mock { rows: unknown[]; tree?: unknown; total?: number; checked?: string | null; history?: (url: string) => unknown; forecast?: unknown }
+function mock({ rows, tree = TREE, total, checked = null, history = () => HIST, forecast = { status: 'no_forecast', reason: 'too_little_history', horizon_days: 7 } }: Mock) {
   const urls: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     urls.push(url)
@@ -22,6 +22,7 @@ function mock({ rows, tree = TREE, total, checked = null, history = () => HIST }
     if (url === '/api/auth/me') return reply(401, {})
     if (url === '/api/config') return reply(200, { googleClientId: null })
     if (url.startsWith('/api/prices/locations')) return reply(200, tree)
+    if (url.startsWith('/api/prices/forecast')) return reply(200, forecast)
     if (url.startsWith('/api/prices/history')) return reply(200, history(url))
     if (url.startsWith('/api/prices?')) return reply(200, { total: total ?? rows.length, checked_at: checked, items: rows })
     return reply(404, {})
@@ -203,6 +204,7 @@ test('while the history loads the chart card shows a placeholder, never a wrong 
     if (url === '/api/auth/me') return reply(401, {})
     if (url === '/api/config') return reply(200, { googleClientId: null })
     if (url.startsWith('/api/prices/locations')) return reply(200, TREE)
+    if (url.startsWith('/api/prices/forecast')) return reply(200, { status: 'no_forecast', reason: 'too_little_history', horizon_days: 7 })
     if (url.startsWith('/api/prices/history')) return new Promise(() => {})  // never answers
     if (url.startsWith('/api/prices?')) return reply(200, { total: 1, checked_at: null, items: [ROW] })
     return reply(404, {})
@@ -211,4 +213,31 @@ test('while the history loads the chart card shows a placeholder, never a wrong 
   await screen.findByRole('button', { name: /Local/ })
   expect(screen.queryByText(/Not enough days of reports/)).not.toBeInTheDocument()
   expect(screen.queryByText(/Daily average of reported modal prices/)).not.toBeInTheDocument()
+})
+
+
+const TWO_DAYS = { basis: 'modal', unit: 'quintal', needs: null, points: [{ date: '2026-11-25', price: 2100, reports: 1 }, { date: '2026-11-26', price: 2200, reports: 1 }] }
+
+test('a forecast that passed its tests is shown with its range and the evidence behind it', async () => {
+  mock({ rows: [ROW], history: () => TWO_DAYS, forecast: { status: 'ok', model: 'trend', value: 2300, low: 2200, high: 2450, target_date: '2026-12-03', holdout_skill: 0.18, holdout_tests: 12, horizon_days: 7 } })
+  page()
+  const box = await screen.findByTestId('forecast')
+  expect(await within(box).findByText(/Expected around .*2,300.* on 2026-12-03 \(likely .*2,200.*2,450.*\)/)).toBeInTheDocument()
+  expect(within(box).getByText(/the recent trend \(damped\) came 18% closer than simply assuming the price stays at the latest report \(12 tests\)/)).toBeInTheDocument()
+})
+
+test('when no method beat the baseline the page says so and shows no forecast number', async () => {
+  mock({ rows: [ROW], history: () => TWO_DAYS, forecast: { status: 'no_forecast', reason: 'not_better_than_baseline', horizon_days: 7 } })
+  page()
+  const box = await screen.findByTestId('forecast')
+  expect(await within(box).findByText(/No forecast: on past dates, no method predicted this line better/)).toBeInTheDocument()
+  expect(within(box).queryByText(/Expected around/)).not.toBeInTheDocument()
+})
+
+test('monthly prices are not forecast and the page does not ask the server', async () => {
+  const urls = mock({ rows: [{ ...ROW, period: 'monthly' }], history: () => TWO_DAYS })
+  page()
+  const box = await screen.findByTestId('forecast')
+  expect(within(box).getByText('Forecasts are only offered for daily prices.')).toBeInTheDocument()
+  expect(urls.some((u) => u.startsWith('/api/prices/forecast'))).toBe(false)
 })

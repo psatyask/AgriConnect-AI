@@ -1,0 +1,115 @@
+"""Short-horizon price forecast that is only offered when it has beaten a plain baseline on past data.
+
+Nothing here is trained on invented data and nothing is shown unless the evidence below passes:
+
+* Series: one daily price line (market, product, package, variety), the same one the history chart draws.
+* Baseline: "the next reading equals the latest report" (naive). With ~90 days of history there is no previous season,
+  so a seasonal baseline cannot be tested yet; the module says so instead of pretending.
+* Candidates: 5-report average, exponential smoothing, damped recent trend. Each is scored on past dates using only
+  the data that existed at that date (rolling origin).
+* Split in time order, 50% / 25% / 25%: the first part picks the best candidate, the second is the gate (must beat the
+  baseline by MIN_SKILL), the last is a holdout that must not lose to the baseline. Skill is reported from the holdout.
+* The range shown is the 10th-90th percentile of that candidate's own past errors, widened if needed to contain the value.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, timedelta
+from statistics import mean
+
+HORIZON_DAYS = 7
+MIN_TRAIN = 20        # reports needed before the first test date
+MIN_FOLDS = 8         # tests needed in each of the gate and holdout parts
+MIN_SKILL = 0.05      # candidate must cut the baseline's average error by at least 5% on the gate part
+MAX_STALE_DAYS = 7    # no forecast from data older than this
+CANDIDATES = ("ma5", "ses", "trend")
+
+Point = tuple[date, float]
+
+
+def _ses(values: list[float], alpha: float = 0.3) -> float:
+    level = values[0]
+    for v in values[1:]:
+        level = alpha * v + (1 - alpha) * level
+    return level
+
+
+def predict(hist: list[Point], h: int = HORIZON_DAYS) -> dict[str, float]:
+    """Every method's value for the date `h` days after the last report, from `hist` only."""
+    vals = [v for _, v in hist]
+    last_day = hist[-1][0]
+    out = {"naive": vals[-1], "ma5": mean(vals[-5:]), "ses": _ses(vals), "trend": vals[-1]}
+    window = [(( d - last_day).days, v) for d, v in hist if (last_day - d).days <= 14]
+    if len(window) >= 5:
+        mx, my = mean(x for x, _ in window), mean(y for _, y in window)
+        sxx = sum((x - mx) ** 2 for x, _ in window)
+        if sxx:
+            slope = sum((x - mx) * (y - my) for x, y in window) / sxx  # price change per day
+            out["trend"] = vals[-1] + 0.5 * slope * h  # damped: recent drift rarely continues in full
+    return {k: max(0.0, v) for k, v in out.items()}
+
+
+@dataclass
+class Folds:
+    actual: list[float]
+    preds: dict[str, list[float]]
+
+
+def _mae(actual: list[float], pred: list[float]) -> float:
+    return mean(abs(a - p) for a, p in zip(actual, pred)) if actual else float("nan")
+
+
+def _slice(f: Folds, a: int, b: int) -> Folds:
+    return Folds(f.actual[a:b], {k: v[a:b] for k, v in f.preds.items()})
+
+
+def _skill(f: Folds, model: str) -> float | None:
+    base = _mae(f.actual, f.preds["naive"])
+    if not f.actual or not base:  # no tests, or a flat series that nothing can beat
+        return None
+    return 1 - _mae(f.actual, f.preds[model]) / base
+
+
+def collect_folds(points: list[Point], h: int = HORIZON_DAYS) -> Folds:
+    """Rolling-origin tests: at each report date, predict the price h days later and keep what actually happened."""
+    by_date = dict(points)
+    folds = Folds([], {k: [] for k in ("naive", *CANDIDATES)})
+    for i in range(MIN_TRAIN - 1, len(points)):
+        target = points[i][0] + timedelta(days=h)
+        if target not in by_date:
+            continue
+        p = predict(points[: i + 1], h)
+        folds.actual.append(by_date[target])
+        for k in folds.preds:
+            folds.preds[k].append(p[k])
+    return folds
+
+
+def evaluate(points: list[Point], today: date | None = None, h: int = HORIZON_DAYS) -> dict:
+    """The forecast (or the reason there is none) with the evidence behind it. `points` are (date, price), ascending."""
+    points = [(d, float(v)) for d, v in points if v is not None and v > 0]
+    base = {"horizon_days": h, "history_reports": len(points)}
+    if len(points) < MIN_TRAIN + h:
+        return {**base, "status": "no_forecast", "reason": "too_little_history"}
+    last_day = points[-1][0]
+    if today and (today - last_day).days > MAX_STALE_DAYS:
+        return {**base, "status": "no_forecast", "reason": "stale"}
+    f = collect_folds(points, h)
+    n = len(f.actual)
+    a, b = n // 2, n // 2 + n // 4
+    select, gate, hold = _slice(f, 0, a), _slice(f, a, b), _slice(f, b, n)
+    if len(gate.actual) < MIN_FOLDS or len(hold.actual) < MIN_FOLDS:
+        return {**base, "status": "no_forecast", "reason": "too_little_history", "tests": n}
+    model = min(CANDIDATES, key=lambda k: _mae(select.actual, select.preds[k]))
+    gate_skill, hold_skill = _skill(gate, model), _skill(hold, model)
+    evidence = {**base, "model": model, "tests": n, "gate_skill": gate_skill, "holdout_skill": hold_skill,
+                "holdout_tests": len(hold.actual), "baseline_error": _mae(hold.actual, hold.preds["naive"]),
+                "model_error": _mae(hold.actual, hold.preds[model])}
+    if gate_skill is None or hold_skill is None or gate_skill < MIN_SKILL or hold_skill <= 0:
+        return {**evidence, "status": "no_forecast", "reason": "not_better_than_baseline"}
+    errs = sorted(x - y for x, y in zip(f.actual[a:], f.preds[model][a:]))
+    q = lambda p: errs[min(len(errs) - 1, max(0, round(p * (len(errs) - 1))))]  # noqa: E731
+    value = predict(points, h)[model]
+    return {**evidence, "status": "ok", "target_date": (last_day + timedelta(days=h)).isoformat(),
+            "last_report": last_day.isoformat(), "value": round(value, 2),
+            "low": round(max(0.0, value + min(q(0.1), 0.0)), 2), "high": round(value + max(q(0.9), 0.0), 2)}  # the range always contains the value

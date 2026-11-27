@@ -65,3 +65,26 @@ While the app is running (`python app.py`), it re-fetches each price source that
 - Pages: Home, Marketplace, Market Intelligence, Price Forecasting, AI Assistant, Knowledge Explorer, demo login, farmer dashboard
 
 See `docs/` for architecture, plan and status.
+
+## Price forecasting
+
+Market Intelligence shows a 7-day-ahead price for a single price line (one market, product, package and variety) **only when
+it has beaten a plain baseline on past dates**. Otherwise it says why there is no forecast and shows no number.
+
+- **Baseline:** "the next price equals the latest report". With about 90 days of history a seasonal baseline (same time last
+  year) cannot be tested; load more history with `python -m app.prices.ingest ams 365` to extend the evidence.
+- **Candidates:** 5-report average, exponential smoothing, damped recent trend (`backend/app/forecast.py`, no ML dependencies).
+- **Test:** rolling origin, using only data that existed at each past date. Dates are split in time order 50% / 25% / 25%:
+  the first part picks the best candidate, the second is the gate (at least 5% lower average error than the baseline), the
+  last is a holdout that must not lose to the baseline. The skill shown to users comes from the holdout.
+- **Range:** the 10th-90th percentile of that candidate's own past errors, widened if needed to contain the forecast.
+- **Not forecast:** too little history, stale data (latest report over 7 days old), monthly sources, or no method beating the baseline.
+
+Evidence across everything stored (these are the numbers to quote, from real stored prices):
+
+```
+cd backend
+python -m app.prices.backtest        # lines tested, share that pass, median skill (all lines, winners and losers)
+```
+
+API: `GET /api/prices/forecast?country=US&commodity=tomato&unit=...&variety=...` (same series rules as `/api/prices/history`).
