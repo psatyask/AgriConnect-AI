@@ -4,13 +4,15 @@
     python -m app.prices.ingest run          # fetch all mapped crops and upsert
     python -m app.prices.ingest probe-nass   # US: check the real USDA response format
     python -m app.prices.ingest nass         # US: load monthly state prices received (needs NASS_API_KEY)
-    python -m app.prices.ingest probe-ams [KEYWORD|REPORT_ID]   # US daily markets: list reports, or show one report's raw shape
+    python -m app.prices.ingest ams [DAYS]   # US terminal market vegetable prices, last DAYS days (default 14); needs MARS_API_KEY
+    python -m app.prices.ingest refresh      # refresh every configured source now (the running app also does this itself, see PRICE_REFRESH_HOURS)
+    python -m app.prices.ingest probe-ams [KEYWORD|REPORT_ID [BEGIN [END]]]   # US daily markets: list reports, or show one report's raw shape
     python -m app.prices.ingest csv FILE [--since 2019-01-01]   # load a downloaded Agmarknet CSV (data.gov.in or CEDA), no API needed
 """
 import csv
 import subprocess
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from collections import Counter
 
@@ -24,7 +26,7 @@ import json
 from . import agmarknet, ams, nass
 from .base import PriceRecord
 
-KEYS = ["source", "state", "district", "market", "commodity_raw", "variety", "grade", "obs_date"]
+KEYS = ["source", "state", "district", "market", "commodity_raw", "variety", "grade", "obs_date", "unit"]
 
 
 def upsert(db: Session, records: list[PriceRecord]) -> int:
@@ -65,12 +67,107 @@ def probe_nass() -> None:
     print("NASS returned no rows.")
 
 
+def _outline(x, name="root", depth=0) -> None:
+    pad = "  " * depth
+    if isinstance(x, dict):
+        print(f"{pad}{name}: object, keys={list(x)}")
+        for k, v in list(x.items())[:12]:
+            if isinstance(v, (dict, list)) and depth < 3:
+                _outline(v, k, depth + 1)
+    elif isinstance(x, list):
+        print(f"{pad}{name}: list of {len(x)}")
+        if x and depth < 3:
+            _outline(x[0], name + "[0]", depth + 1)
+            if isinstance(x[0], dict):
+                print(f"{pad}  first item: {json.dumps(x[0], default=str)[:2500]}")
+
+
 def probe_ams(arg: str = "") -> None:
     if arg.isdigit():
-        print(json.dumps(ams.sample_report(arg), indent=1, default=str)[:6000])
+        data = ams.sample_report(arg)
+        Path(f"ams_{arg}.json").write_text(json.dumps(data, indent=1, default=str))
+        print(f"--- A) report description (saved to ams_{arg}.json) ---")
+        _outline(data)
+        begin = sys.argv[3] if len(sys.argv) > 3 else (date.today() - timedelta(days=3)).strftime("%m/%d/%Y")
+        end = sys.argv[4] if len(sys.argv) > 4 else None
+        rows = ams.report_rows(arg, begin, end)
+        Path(f"ams_{arg}_rows.json").write_text(json.dumps(rows, indent=1, default=str))
+        print(f"--- B) Report Details (the prices) {begin}{' to ' + end if end else ''} (saved to ams_{arg}_rows.json) ---")
+        _outline(rows)
+        found = ams.rows_of(rows)
+        print(f"{len(found)} rows; report dates: {sorted({r.get('report_date') for r in found})}")
+        print("sample parsed:", ams.parse_record(found[0]) if found else None)
         return
-    for r in ams.list_reports(arg)[:40]:
-        print({k: r[k] for k in list(r)[:6]})
+    found = ams.list_reports(arg)
+    for r in found[:150]:
+        print(r.get("slug_id"), "|", r.get("report_title"), "|", r.get("report_date"))
+    print(f"{len(found)} reports match" + (" (showing 150; add another word to narrow)" if len(found) > 150 else ""))
+
+
+def run_ams(days: int | None = None) -> None:
+    """US terminal market prices (vegetables, fruit) for the last N days (default 14). Needs MARS_API_KEY."""
+    days = days if days is not None else int(sys.argv[2]) if len(sys.argv) > 2 else 14
+    end, begin = date.today(), date.today() - timedelta(days=days)
+    reports = ams.terminal_reports()
+    print(f"{len(reports)} terminal market reports found; fetching {begin} to {end}")
+    stored = collisions = 0
+    unusable: Counter = Counter()
+    conflicts: list[tuple[PriceRecord, PriceRecord]] = []
+    differ: Counter = Counter()
+    example: dict[str, tuple[str, str]] = {}
+    unmapped: Counter = Counter()
+    failed: list[str] = []
+    with SessionLocal() as db:
+        for rep in reports:
+            title = str(rep.get("report_title", rep.get("slug_id")))
+            try:
+                raws = ams.fetch_report_rows(str(rep["slug_id"]), begin.strftime("%m/%d/%Y"), end.strftime("%m/%d/%Y"))
+            except RuntimeError as exc:
+                failed.append(f"{title}: {exc}")
+                continue
+            batch: list[PriceRecord] = []
+            raw_of: dict[int, dict] = {}
+            for raw in raws:
+                rec = ams.parse_record(raw)
+                if rec is None:
+                    unusable[ams.reject_reason(raw) or "unknown"] += 1
+                elif rec.commodity is None:
+                    unmapped[rec.commodity_raw] += 1
+                else:
+                    batch.append(rec)
+                    raw_of[id(rec)] = raw
+            seen: dict[tuple, PriceRecord] = {}
+            for r in batch:
+                k = tuple(getattr(r, f) for f in KEYS)
+                if k in seen:
+                    collisions += 1
+                    if (seen[k].min_price, seen[k].max_price) != (r.min_price, r.max_price):
+                        conflicts.append((seen[k], r))
+                        a, b = raw_of[id(seen[k])], raw_of[id(r)]
+                        for f in ams.differing_fields(a, b):
+                            if f not in ("low_price", "high_price", "mostly_low_price", "mostly_high_price", "report_date", "published_date"):
+                                differ[f] += 1
+                                example.setdefault(f, (str(a.get(f)), str(b.get(f))))
+                seen[k] = r
+            stored += upsert(db, batch)
+    print(f"Done. {stored} price rows stored, {sum(unusable.values())} unusable rows, "
+          f"{sum(unmapped.values())} rows for products the app does not map, {collisions} rows with the same market, product, package, description and day as another (kept the last).")
+    if unusable:
+        print("Unusable rows by reason:", ", ".join(f"{n} ({c})" for n, c in unusable.most_common()))
+    if collisions:
+        print(f"Of the repeated rows, {len(conflicts)} had DIFFERENT prices (one of each pair was overwritten).")
+        for a, b in conflicts[:3]:
+            print(f"  e.g. {a.market} | {a.commodity_raw} | {a.variety} | {a.grade} | {a.unit} | {a.obs_date}: {a.min_price}-{a.max_price} vs {b.min_price}-{b.max_price}")
+    if differ:
+        print("Fields that differ inside those pairs (field: pairs, example):")
+        for f, n in differ.most_common(12):
+            print(f"  {f}: {n}, e.g. {example[f][0]!r} vs {example[f][1]!r}")
+    if unmapped:
+        print(f"Unmapped products ({len(unmapped)}), most common first:", ", ".join(f"{n} ({c})" for n, c in unmapped.most_common(60)))
+    for f in failed[:10]:
+        print("FAILED:", f)
+    if stored == 0:
+        print("Nothing stored. Run: python -m app.prices.ingest probe-ams <report id> to check the format.")
 
 
 def run() -> None:
@@ -138,10 +235,16 @@ def migrate() -> None:
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    if cmd in ("run", "nass", "csv"):
+    if cmd in ("run", "nass", "csv", "ams", "refresh"):
         migrate()
     if cmd == "csv" and len(sys.argv) in (3, 5) and (len(sys.argv) == 3 or sys.argv[3] == "--since"):
         load_csv(sys.argv[2], date.fromisoformat(sys.argv[4]) if len(sys.argv) == 5 else None)
+    elif cmd == "ams":
+        run_ams()
+    elif cmd == "refresh":
+        from . import refresh
+        for src, msg in refresh.refresh_once(force=True).items():
+            print(f"{src}: {msg}")
     elif cmd == "probe-ams":
         probe_ams(sys.argv[2] if len(sys.argv) > 2 else "")
     elif cmd in ("run", "probe", "nass", "probe-nass"):

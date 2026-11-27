@@ -75,7 +75,7 @@ export default function Home() {
 
       <Section title={t('home.featuredCrops')}>
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          {region.commodities.map((c) => (
+          {(region.commodities.some((c) => c.featured) ? region.commodities.filter((c) => c.featured) : region.commodities).map((c) => (
             <li key={c.id}><Card className="flex h-full items-center gap-3 transition hover:-translate-y-0.5 hover:shadow-md">
               <CropIcon id={c.id} /><div><b>{t(c.nameKey)}</b>
               <div className="text-sm" style={{ color: 'var(--muted)' }}>{t(c.categoryKey)}</div></div></Card></li>

@@ -6,6 +6,7 @@ from sqlalchemy import text
 
 # Tests need a real PostgreSQL database (docker compose up -d db). They wipe the tables, so use a test DB.
 os.environ.setdefault("DATABASE_URL", "postgresql+psycopg://agri:agri_dev_pw@localhost:5432/agriconnect")
+os.environ["PRICE_REFRESH_HOURS"] = "0"  # tests never start the background refresh
 os.environ["GOOGLE_OAUTH_CLIENT_ID"] = "test-client-id.apps.googleusercontent.com"
 
 from app import google as google_mod  # noqa: E402

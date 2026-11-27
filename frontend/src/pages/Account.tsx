@@ -8,6 +8,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { useBuyerInquiries, useCreateListing, useFarmerInquiries, useMyListings, useSetListingStatus, type Inquiry, type ListingStatus } from '../api/listings'
 import { formatMoney, formatNumber } from '../utils/format'
 import { Inbox, ShoppingBag, Sprout } from 'lucide-react'
+import CropOptions from '../components/CropOptions'
 import { Card, btnGhost, btnPrimary } from '../components/ui'
 
 export function Login() {
@@ -112,7 +113,7 @@ function NewListingForm({ onDone }: { onDone: () => void }) {
       <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm">{t('home.cropLabel')}
           <select className={input} style={style} value={f.commodity} onChange={(e) => { const c = region.commodities.find((x) => x.id === e.target.value); setF((p) => ({ ...p, commodity: e.target.value, unit: c?.priceUnit ?? p.unit })) }}>
-            {region.commodities.map((c) => <option key={c.id} value={c.id}>{t(c.nameKey)}</option>)}</select></label>
+            <CropOptions crops={region.commodities} /></select></label>
         <label className="text-sm">{t('market.unit')}
           <select className={input} style={style} value={f.unit} onChange={set('unit')}>
             {region.units.map((u) => <option key={u.id} value={u.id}>{t(`units.${u.id}`)}</option>)}</select></label>
