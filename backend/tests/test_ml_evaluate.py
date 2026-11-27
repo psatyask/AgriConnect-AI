@@ -98,3 +98,11 @@ def test_direction_task_finds_reversion_and_finds_nothing_in_random_walks():
     assert (t["y"].abs() >= 0.02).all()  # only lines that really moved are scored
     t2 = run(build(walk_panel(seed=8)), ["lgbm"], 2, 200_000, FEATURES, task="direction")
     assert roc_auc_score((t2["y"] > 0).astype(int), t2["lgbm"]) < 0.56
+
+
+def test_direction_report_prints_each_window_and_a_calibration_table(capsys):
+    from ml.evaluate import report_direction
+    t = run(build(walk_panel(mean_revert=0.25)), ["lgbm", "ridge"], 2, 200_000, FEATURES, task="direction")
+    report_direction(t, ["lgbm", "ridge"])
+    out = capsys.readouterr().out
+    assert "AUC in each test window" in out and out.count("said ") >= 8 and "Calibration, lgbm" in out

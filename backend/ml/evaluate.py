@@ -228,6 +228,23 @@ def report_move(test: pd.DataFrame, models: list[str]) -> None:
                                   "share of days it changed (rule)": (1 - test["flat28"].fillna(1)).to_numpy()})
 
 
+def _by_window_and_calibration(test: pd.DataFrame, models: list[str], label: np.ndarray) -> None:
+    from sklearn.metrics import roc_auc_score
+    print("\nAUC in each test window (does it hold over time?):")
+    for m in models:
+        parts = []
+        for w, idx in test.groupby("window").indices.items():
+            parts.append(f"{w}: {roc_auc_score(label[idx], test[m].to_numpy()[idx]):.3f}")
+        print(f"  {m:6s} " + "   ".join(parts))
+    for m in models:
+        if test[m].between(0, 1).all():  # probabilities: does '70% up' mean it went up about 70% of the time?
+            bins = pd.qcut(test[m], 10, duplicates="drop")
+            t = pd.DataFrame({"p": test[m], "up": label, "bin": bins}).groupby("bin", observed=True).agg(n=("up", "size"), said=("p", "mean"), went_up=("up", "mean"))
+            print(f"\nCalibration, {m} (in each tenth of the test rows, what it said vs what happened):")
+            for _, r in t.iterrows():
+                print(f"  said {r.said:5.0%} up  ->  went up {r.went_up:5.0%}   ({int(r.n):,} rows)")
+
+
 def report_direction(test: pd.DataFrame, models: list[str]) -> None:
     up = (test["y"] > 0).astype(int).to_numpy()
     print(f"\n{len(test):,} test rows, all lines that moved {MOVE:.0%}+ in 7 days; {up.mean():.1%} of them went UP.")
@@ -237,6 +254,7 @@ def report_direction(test: pd.DataFrame, models: list[str]) -> None:
                                    "all other lines' change (cm_r7)": test["cm_r7"].fillna(0).to_numpy(),
                                    "OTHER MARKETS' change (xm_r7)": test["xm_r7"].fillna(0).to_numpy(),
                                    "same market, other lines (sm_r7)": test["sm_r7"].fillna(0).to_numpy()})
+    _by_window_and_calibration(test, models, up)
 
 
 def main() -> None:
