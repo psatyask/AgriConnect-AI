@@ -54,3 +54,14 @@ def test_shuffling_the_target_inside_each_line_removes_the_skill_of_a_learnable_
     df["y"] = df.groupby("line")["y"].transform(lambda s: rng.permutation(s.to_numpy()))
     test = run(df, ["lgbm"], 2, 200_000, FEATURES)
     assert skill(test["y"].to_numpy(), test["lgbm"].to_numpy()) < 0.03
+
+
+def test_a_market_that_first_appears_after_the_training_period_does_not_break_xgboost():
+    """Real data crashed on this: the late market's code was unknown to the training set."""
+    p = walk_panel(n_lines=8)
+    late = walk_panel(n_lines=1, seed=9)
+    late["market"] = "LATE MARKET"
+    late = late[late.obs_date >= pd.Timestamp("2025-12-01")]
+    df = build(pd.concat([p, late], ignore_index=True))
+    test = run(df, ["xgb", "lgbm"], 2, 200_000, FEATURES)
+    assert "LATE MARKET" in set(test["line"].str.split("|").str[0]) and test["xgb"].notna().all()

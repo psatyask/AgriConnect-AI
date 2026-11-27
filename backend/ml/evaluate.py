@@ -27,6 +27,7 @@ from .dataset import CATEGORICAL, CROSS, HORIZON, NUMERIC, build
 
 warnings.filterwarnings("ignore")
 GAP = HORIZON
+CAT_TYPES: dict[str, pd.CategoricalDtype] = {}  # filled by run() from ALL rows, so a market first seen in test is a known category
 
 
 @dataclass
@@ -73,7 +74,7 @@ def _fit_predict(name: str, params: dict, X_tr, y_tr, X_va, y_va, X_te) -> tuple
               callbacks=[lgb.early_stopping(30, verbose=False)])
         return m.predict(X_va), m.predict(X_te)
     import xgboost as xgb
-    Xs = [x.astype({c: "category" for c in CATEGORICAL if c in x}) for x in (X_tr, X_va, X_te)]
+    Xs = [x.astype({c: CAT_TYPES[c] for c in CATEGORICAL if c in x}) for x in (X_tr, X_va, X_te)]  # same categories in every part
     extra = {"huber_slope": 0.05} if params["objective"] == "reg:pseudohubererror" else {}
     m = xgb.XGBRegressor(n_estimators=600, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8, min_child_weight=50,
                          tree_method="hist", enable_categorical=True, eval_metric="mae", early_stopping_rounds=30, n_jobs=-1, **params, **extra)
@@ -84,6 +85,7 @@ def _fit_predict(name: str, params: dict, X_tr, y_tr, X_va, y_va, X_te) -> tuple
 def run(df: pd.DataFrame, models: list[str], n_windows: int, max_train_rows: int, features: list[str], seed: int = 0):
     """Returns the test rows with each model's prediction in a column named after it."""
     global NUMERIC_USED
+    CAT_TYPES.update({c: pd.CategoricalDtype(sorted(df[c].unique())) for c in CATEGORICAL})
     NUMERIC_USED = [c for c in NUMERIC if c in features]
     rng = np.random.default_rng(seed)
     parts = []
