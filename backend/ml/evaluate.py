@@ -6,6 +6,9 @@
     python -m ml.evaluate --ablate cross        # without the other-markets features
     python -m ml.evaluate --task rmse           # squared error instead of absolute error (rewards getting big moves right)
     python -m ml.evaluate --task move           # will the price move 2% or more in 7 days? AUC vs the rule "it moved last week"
+    python -m ml.evaluate --task direction      # among lines that did move 2%+, will it be up or down? AUC vs momentum / reversion rules
+    python -m ml.evaluate --ablate flat         # without the "share of unchanged days" and volatility features (reporting-habit check)
+    python -m ml.evaluate --ablate ids          # without product / market / package identity columns
     python -m ml.evaluate --models lgbm --windows 2 --max-train-rows 300000    # quicker
 
 Target: y = log(price in 7 days / price today). The baseline predicts y = 0 ("same as today").
@@ -30,6 +33,8 @@ from .dataset import CATEGORICAL, CROSS, HORIZON, NUMERIC, build
 warnings.filterwarnings("ignore")
 GAP = HORIZON
 MOVE = 0.02  # a 7-day change of 2% or more, up or down, counts as a move
+CLASSIFY = ("move", "direction")
+FLAT = ["flat28", "vol28"]
 CAT_TYPES: dict[str, pd.CategoricalDtype] = {}  # filled by run() from ALL rows, so a market first seen in test is a known category
 
 
@@ -55,14 +60,18 @@ def make_windows(last: pd.Timestamp, n: int, test_days: int = 56, val_days: int 
 
 def _grid(name: str, task: str = "mae") -> list[dict]:
     if name == "lgbm":
-        obj = {"mae": ("huber", "l1"), "rmse": ("regression",), "move": ("binary",)}[task]
+        obj = {"mae": ("huber", "l1"), "rmse": ("regression",), "move": ("binary",), "direction": ("binary",)}[task]
         return [{"num_leaves": nl, "objective": ob} for nl in (15, 63) for ob in obj]
-    obj = {"mae": ("reg:pseudohubererror", "reg:absoluteerror"), "rmse": ("reg:squarederror",), "move": ("binary:logistic",)}[task]
+    obj = {"mae": ("reg:pseudohubererror", "reg:absoluteerror"), "rmse": ("reg:squarederror",), "move": ("binary:logistic",), "direction": ("binary:logistic",)}[task]
     return [{"max_depth": d, "objective": ob} for d in (4, 8) for ob in obj]
 
 
 def _target(df: pd.DataFrame, task: str) -> np.ndarray:
-    return (df["y"].abs() >= MOVE).astype(int).to_numpy() if task == "move" else df["y"].to_numpy()
+    if task == "move":
+        return (df["y"].abs() >= MOVE).astype(int).to_numpy()
+    if task == "direction":
+        return (df["y"] > 0).astype(int).to_numpy()
+    return df["y"].to_numpy()
 
 
 def _score(task: str, y: np.ndarray, p: np.ndarray) -> float:
@@ -82,35 +91,37 @@ def _fit_predict(name: str, params: dict, X_tr, y_tr, X_va, y_va, X_te, task: st
         from sklearn.linear_model import LogisticRegression, Ridge
         from sklearn.pipeline import make_pipeline
         from sklearn.preprocessing import StandardScaler
-        est = LogisticRegression(C=0.1, max_iter=300) if task == "move" else Ridge(alpha=10.0)
+        est = LogisticRegression(C=0.1, max_iter=300) if task in CLASSIFY else Ridge(alpha=10.0)
         m = make_pipeline(SimpleImputer(strategy="median"), StandardScaler(), est)
         m.fit(X_tr[NUMERIC_USED], y_tr)
-        f = (lambda X: m.predict_proba(X[NUMERIC_USED])[:, 1]) if task == "move" else (lambda X: m.predict(X[NUMERIC_USED]))
+        f = (lambda X: m.predict_proba(X[NUMERIC_USED])[:, 1]) if task in CLASSIFY else (lambda X: m.predict(X[NUMERIC_USED]))
         return f(X_va), f(X_te)
     if name == "lgbm":
         import lightgbm as lgb
-        cls = lgb.LGBMClassifier if task == "move" else lgb.LGBMRegressor
+        cls = lgb.LGBMClassifier if task in CLASSIFY else lgb.LGBMRegressor
         m = cls(n_estimators=600, learning_rate=0.05, min_child_samples=200, subsample=0.8, subsample_freq=1,
                 colsample_bytree=0.8, alpha=0.05, verbose=-1, n_jobs=-1, **params)
-        m.fit(X_tr, y_tr, eval_set=[(X_va, y_va)], eval_metric={"mae": "l1", "rmse": "l2", "move": "auc"}[task],
+        m.fit(X_tr, y_tr, eval_set=[(X_va, y_va)], eval_metric={"mae": "l1", "rmse": "l2", "move": "auc", "direction": "auc"}[task],
               categorical_feature=[c for c in CATEGORICAL if c in X_tr], callbacks=[lgb.early_stopping(30, verbose=False)])
-        f = (lambda X: m.predict_proba(X)[:, 1]) if task == "move" else m.predict
+        f = (lambda X: m.predict_proba(X)[:, 1]) if task in CLASSIFY else m.predict
         return f(X_va), f(X_te)
     import xgboost as xgb
     Xs = [x.astype({c: CAT_TYPES[c] for c in CATEGORICAL if c in x}) for x in (X_tr, X_va, X_te)]  # same categories in every part
     extra = {"huber_slope": 0.05} if params["objective"] == "reg:pseudohubererror" else {}
-    cls = xgb.XGBClassifier if task == "move" else xgb.XGBRegressor
+    cls = xgb.XGBClassifier if task in CLASSIFY else xgb.XGBRegressor
     m = cls(n_estimators=600, learning_rate=0.05, subsample=0.8, colsample_bytree=0.8, min_child_weight=50, tree_method="hist",
-            enable_categorical=True, eval_metric={"mae": "mae", "rmse": "rmse", "move": "auc"}[task], early_stopping_rounds=30,
+            enable_categorical=True, eval_metric={"mae": "mae", "rmse": "rmse", "move": "auc", "direction": "auc"}[task], early_stopping_rounds=30,
             n_jobs=-1, **params, **extra)
     m.fit(Xs[0], y_tr, eval_set=[(Xs[1], y_va)], verbose=False)
-    f = (lambda X: m.predict_proba(X)[:, 1]) if task == "move" else m.predict
+    f = (lambda X: m.predict_proba(X)[:, 1]) if task in CLASSIFY else m.predict
     return f(Xs[1]), f(Xs[2])
 
 
 def run(df: pd.DataFrame, models: list[str], n_windows: int, max_train_rows: int, features: list[str], seed: int = 0, task: str = "mae"):
     """Returns the test rows with each model's prediction in a column named after it."""
     global NUMERIC_USED
+    if task == "direction":
+        df = df[df["y"].abs() >= MOVE]  # only lines that really moved: was it up or down?
     CAT_TYPES.update({c: pd.CategoricalDtype(sorted(df[c].unique())) for c in CATEGORICAL})
     NUMERIC_USED = [c for c in NUMERIC if c in features]
     rng = np.random.default_rng(seed)
@@ -189,13 +200,9 @@ def report_rmse(test: pd.DataFrame, models: list[str]) -> None:
         print(f"  {m:6s} pooled {sk:+.1%}  [{np.percentile(b, 2.5):+.1%}, {np.percentile(b, 97.5):+.1%}]")
 
 
-def report_move(test: pd.DataFrame, models: list[str]) -> None:
+def _auc_report(test: pd.DataFrame, models: list[str], label: np.ndarray, rules: dict[str, np.ndarray]) -> None:
     from sklearn.metrics import roc_auc_score
-    m = (test["y"].abs() >= MOVE).astype(int).to_numpy()
-    print(f"\n{len(test):,} test rows. A move (7-day change of {MOVE:.0%}+, either direction) happened in {m.mean():.1%} of them.")
-    print("AUC = chance of ranking a line that moved above one that did not (0.5 = no idea, 1.0 = perfect):")
-    base = test["r7"].abs().fillna(0).to_numpy()
-    scores = {"moved last week (rule)": base, **{k: test[k].to_numpy() for k in models}}
+    scores = {**rules, **{k: test[k].to_numpy() for k in models}}
     week = test["date"].dt.to_period("W").astype(str).to_numpy()
     weeks = np.unique(week)
     rng = np.random.default_rng(0)
@@ -204,8 +211,25 @@ def report_move(test: pd.DataFrame, models: list[str]) -> None:
         boots = []
         for _ in range(100):
             pick = np.concatenate([idx[w] for w in rng.choice(weeks, len(weeks))])
-            boots.append(roc_auc_score(m[pick], sc[pick]))
-        print(f"  {name:24s} AUC {roc_auc_score(m, sc):.3f}  [{np.percentile(boots, 2.5):.3f}, {np.percentile(boots, 97.5):.3f}]")
+            if 0 < label[pick].sum() < len(pick):
+                boots.append(roc_auc_score(label[pick], sc[pick]))
+        print(f"  {name:28s} AUC {roc_auc_score(label, sc):.3f}  [{np.percentile(boots, 2.5):.3f}, {np.percentile(boots, 97.5):.3f}]")
+
+
+def report_move(test: pd.DataFrame, models: list[str]) -> None:
+    m = (test["y"].abs() >= MOVE).astype(int).to_numpy()
+    print(f"\n{len(test):,} test rows. A move (7-day change of {MOVE:.0%}+, either direction) happened in {m.mean():.1%} of them.")
+    print("AUC = chance of ranking a line that moved above one that did not (0.5 = no idea, 1.0 = perfect):")
+    _auc_report(test, models, m, {"moved last week (rule)": test["r7"].abs().fillna(0).to_numpy()})
+
+
+def report_direction(test: pd.DataFrame, models: list[str]) -> None:
+    up = (test["y"] > 0).astype(int).to_numpy()
+    print(f"\n{len(test):,} test rows, all lines that moved {MOVE:.0%}+ in 7 days; {up.mean():.1%} of them went UP.")
+    print("AUC = chance of ranking a line that went up above one that went down (0.5 = no idea):")
+    _auc_report(test, models, up, {"momentum (last week's change)": test["r7"].fillna(0).to_numpy(),
+                                   "reversion (minus last week's change)": -test["r7"].fillna(0).to_numpy(),
+                                   "other markets' change (cm_r7)": test["cm_r7"].fillna(0).to_numpy()})
 
 
 def main() -> None:
@@ -213,9 +237,9 @@ def main() -> None:
     ap.add_argument("--models", default="ridge,lgbm,xgb")
     ap.add_argument("--windows", type=int, default=4)
     ap.add_argument("--max-train-rows", type=int, default=1_500_000)
-    ap.add_argument("--task", choices=["mae", "rmse", "move"], default="mae")
+    ap.add_argument("--task", choices=["mae", "rmse", "move", "direction"], default="mae")
     ap.add_argument("--null", action="store_true", help="shuffle the target inside each line: any 'skill' is then a pipeline bug")
-    ap.add_argument("--ablate", choices=["cross"], help="drop a feature group to see what it adds")
+    ap.add_argument("--ablate", choices=["cross", "flat", "ids"], help="drop a feature group to see what it adds")
     a = ap.parse_args()
     from app.db import engine
     from .dataset import load_panel
@@ -230,13 +254,16 @@ def main() -> None:
         rng = np.random.default_rng(1)
         df["y"] = df.groupby("line")["y"].transform(lambda s: rng.permutation(s.to_numpy()))
         print("NULL RUN: targets shuffled inside each line.")
-    features = [c for c in NUMERIC + CATEGORICAL if not (a.ablate == "cross" and c in CROSS)]
+    dropped = {"cross": CROSS, "flat": FLAT, "ids": CATEGORICAL}.get(a.ablate, [])
+    features = [c for c in NUMERIC + CATEGORICAL if c not in dropped]
+    if dropped:
+        print(f"ABLATION: without {', '.join(dropped)}")
     models = a.models.split(",")
     test = run(df, models, a.windows, a.max_train_rows, features, task=a.task)
     if test.empty:
         print("Not enough history to make test windows; load more prices.")
         return
-    {"mae": report, "rmse": report_rmse, "move": report_move}[a.task](test, models)
+    {"mae": report, "rmse": report_rmse, "move": report_move, "direction": report_direction}[a.task](test, models)
 
 
 if __name__ == "__main__":

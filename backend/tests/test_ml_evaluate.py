@@ -89,3 +89,12 @@ def test_squared_error_task_finds_a_planted_pattern_and_move_task_beats_chance_o
     t3 = run(build(walk_panel(seed=6)), ["lgbm"], 2, 200_000, FEATURES, task="move")
     m3 = (t3["y"].abs() >= MOVE).astype(int)
     assert roc_auc_score(m3, t3["lgbm"]) < 0.56
+
+
+def test_direction_task_finds_reversion_and_finds_nothing_in_random_walks():
+    from sklearn.metrics import roc_auc_score
+    t = run(build(walk_panel(mean_revert=0.25)), ["lgbm"], 2, 200_000, FEATURES, task="direction")
+    assert roc_auc_score((t["y"] > 0).astype(int), t["lgbm"]) > 0.65
+    assert (t["y"].abs() >= 0.02).all()  # only lines that really moved are scored
+    t2 = run(build(walk_panel(seed=8)), ["lgbm"], 2, 200_000, FEATURES, task="direction")
+    assert roc_auc_score((t2["y"] > 0).astype(int), t2["lgbm"]) < 0.56

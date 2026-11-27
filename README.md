@@ -107,6 +107,8 @@ python -m ml.evaluate --null                                              # targ
 python -m ml.evaluate --ablate cross                                      # without the other-markets features
 python -m ml.evaluate --task rmse                                         # squared error (rewards getting large moves right)
 python -m ml.evaluate --task move                                         # will the price move 2%+ in 7 days? AUC vs 'it moved last week'
+python -m ml.evaluate --task direction                                    # among lines that moved 2%+, up or down? AUC vs momentum / reversion
+python -m ml.evaluate --ablate flat|ids|cross                             # drop a feature group (reporting-habit and identity checks)
 ```
 
 Target: log(price in 7 days / price today). Features (only what is known on that date): price changes over 1/3/7/14/28 days,
