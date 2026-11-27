@@ -370,3 +370,15 @@ def test_ams_subtypes_share_one_crop_and_show_in_the_variety():
     assert (rom.commodity, ice.commodity) == ("lettuce", "lettuce") and rom.variety == "Romaine" and ice.variety == "Iceberg"
     assert ams.parse_record({**base, "commodity": "Apples"}).commodity == "apple"
     assert ams.parse_record({**base, "commodity": "Peppers, Bell Type"}).commodity == "bell_pepper"  # unchanged
+
+
+def test_ams_range_uses_the_exact_window_and_does_not_read_dates_as_a_day_count(client, monkeypatch, capsys):
+    from datetime import date as d
+    from app.prices import ams, ingest
+    monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Test Terminal Market Vegetables Prices"}])
+    asked = []
+    monkeypatch.setattr(ams, "fetch_report_rows", lambda slug, begin, end: asked.append((begin, end)) or AMS_RAW)
+    monkeypatch.setattr(sys, "argv", ["ingest", "ams-range", "2026-07-22", "2026-07-29"])  # exactly what the command line gives
+    ingest.run_ams(begin=d.fromisoformat(sys.argv[2]), end=d.fromisoformat(sys.argv[3]))
+    assert "fetching 2026-07-22 to 2026-07-29" in capsys.readouterr().out
+    assert asked == [("07/22/2026", "07/29/2026")]

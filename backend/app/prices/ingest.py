@@ -107,7 +107,8 @@ def probe_ams(arg: str = "") -> None:
 
 def run_ams(days: int | None = None, begin: date | None = None, end: date | None = None) -> None:
     """US terminal market prices (vegetables, fruit) for the last N days (default 14). Needs MARS_API_KEY."""
-    days = days if days is not None else int(sys.argv[2]) if len(sys.argv) > 2 else 14
+    if begin is None:
+        days = days if days is not None else int(sys.argv[2]) if len(sys.argv) > 2 else 14
     end = end or date.today()
     begin = begin or end - timedelta(days=days)
     reports = ams.terminal_reports()
