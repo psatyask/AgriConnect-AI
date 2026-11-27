@@ -18,7 +18,7 @@ from app.main import app  # noqa: E402
 def clean_db():
     Base.metadata.create_all(engine)
     with engine.begin() as c:
-        c.execute(text("TRUNCATE price_observations, inquiries, listings, auth_sessions, users CASCADE"))
+        c.execute(text("TRUNCATE price_observations, price_signals, signal_evidence, inquiries, listings, auth_sessions, users CASCADE"))
     yield
 
 

@@ -60,8 +60,12 @@ def _peer_means(values: np.ndarray, commodity: np.ndarray, market: np.ndarray) -
     return out
 
 
-def build(panel: pd.DataFrame) -> pd.DataFrame:
-    """Features and target for every (line, date) with a real report today and 7 days later."""
+def build(panel: pd.DataFrame, unlabeled_days: int = 0) -> pd.DataFrame:
+    """Features and target for every (line, date) with a real report today and 7 days later.
+
+    With `unlabeled_days` > 0 the most recent days are kept too, with y = NaN: their outcome is not known yet, and these are the
+    rows a forecast is made from.
+    """
     panel = panel.copy()
     panel["obs_date"] = pd.to_datetime(panel["obs_date"])
     panel["line"] = panel[["market", "commodity", "variety", "grade", "unit"]].astype(str).agg("|".join, axis=1)
@@ -93,10 +97,14 @@ def build(panel: pd.DataFrame) -> pd.DataFrame:
     with np.errstate(invalid="ignore"):
         target = np.log(np.roll(raw, -HORIZON, axis=0)) - np.log(raw)
     target[-HORIZON:] = np.nan  # nothing exists beyond the last day
-    ti, cj = np.nonzero(~np.isnan(raw) & ~np.isnan(target))  # a real report today AND a real report 7 days later
+    known = ~np.isnan(target)
+    if unlabeled_days:
+        known[-unlabeled_days:] = True  # the outcome is still in the future: keep the row, y stays NaN
+    ti, cj = np.nonzero(~np.isnan(raw) & known)  # a real report today AND (a real report 7 days later, or not yet known)
     out = pd.DataFrame({k: v[ti, cj] for k, v in feats.items()})
     out["date"], out["line"], out["y"] = days[ti], wide.columns[cj], target[ti, cj]
     out["commodity"], out["market"] = meta["commodity"].to_numpy()[cj], meta["market"].to_numpy()[cj]
+    out["variety"], out["grade"], out["unit"] = meta["variety"].to_numpy()[cj], meta["grade"].to_numpy()[cj], meta["unit"].to_numpy()[cj]
     out["dow"], out["woy"], out["month"] = out["date"].dt.dayofweek, out["date"].dt.isocalendar().week.astype(int), out["date"].dt.month
     for c, name in (("commodity", "commodity_code"), ("market", "market_code"), ("unit", "unit_code")):
         out[name] = codes[c][cj]

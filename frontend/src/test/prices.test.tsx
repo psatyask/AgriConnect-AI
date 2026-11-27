@@ -13,8 +13,8 @@ const TERMINAL = { as_of: '2026-11-23', states: [{ state: 'Test State One', dist
 const TBASE = { state: 'Test State One', district: '', market: 'Test Terminal Market', variety: 'ROUND TYPE', grade: '', date: '2026-11-23', modal: null, currency: 'USD', period: 'daily',
   source: 'ams', source_label: 'USDA AMS Market News, terminal markets' }
 
-interface Mock { rows: unknown[]; tree?: unknown; total?: number; checked?: string | null; history?: (url: string) => unknown; forecast?: unknown }
-function mock({ rows, tree = TREE, total, checked = null, history = () => HIST, forecast = { status: 'no_forecast', reason: 'too_little_history', horizon_days: 7 } }: Mock) {
+interface Mock { rows: unknown[]; tree?: unknown; total?: number; checked?: string | null; history?: (url: string) => unknown; forecast?: unknown; signal?: unknown }
+function mock({ rows, tree = TREE, total, checked = null, history = () => HIST, forecast = { status: 'no_forecast', reason: 'too_little_history', horizon_days: 7 }, signal = { status: 'none', reason: 'no_evidence' } }: Mock) {
   const urls: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string) => {
     urls.push(url)
@@ -23,6 +23,7 @@ function mock({ rows, tree = TREE, total, checked = null, history = () => HIST, 
     if (url === '/api/config') return reply(200, { googleClientId: null })
     if (url.startsWith('/api/prices/locations')) return reply(200, tree)
     if (url.startsWith('/api/prices/forecast')) return reply(200, forecast)
+    if (url.startsWith('/api/prices/signal')) return reply(200, signal)
     if (url.startsWith('/api/prices/history')) return reply(200, history(url))
     if (url.startsWith('/api/prices?')) return reply(200, { total: total ?? rows.length, checked_at: checked, items: rows })
     return reply(404, {})
@@ -240,4 +241,32 @@ test('monthly prices are not forecast and the page does not ask the server', asy
   const box = await screen.findByTestId('forecast')
   expect(within(box).getByText('Forecasts are only offered for daily prices.')).toBeInTheDocument()
   expect(urls.some((u) => u.startsWith('/api/prices/forecast'))).toBe(false)
+})
+
+async function pickMarket() {
+  const user = userEvent.setup()
+  await screen.findByRole('option', { name: 'Test State' })
+  await user.selectOptions(screen.getByLabelText('State'), 'Test State')
+  await user.selectOptions(screen.getByLabelText('District'), 'Test District A')
+  await user.selectOptions(screen.getByLabelText('Market'), 'Test Mandi 1')
+}
+
+const SIGNAL = { status: 'ok', p_up: 0.72, lines: 1, as_of: '2026-11-26', other_markets_change: 0.031, evidence: { auc: 0.71, auc_low: 0.66, auc_high: 0.75, tests: 900, through: '2026-11-26' } }
+
+test('a direction signal is shown with what it does and does not say, only when the server returns one', async () => {
+  mock({ rows: [ROW], history: () => TWO_DAYS, signal: SIGNAL })
+  page()
+  await pickMarket()
+  const box = await screen.findByTestId('signal')
+  expect(within(box).getByText(/more likely to go up \(72% chance\)/)).toBeInTheDocument()
+  expect(within(box).getByText(/does not say whether the price will move/)).toBeInTheDocument()
+  expect(within(box).getByText(/\+3\.1% over the last 7 days/)).toBeInTheDocument()
+})
+
+test('no direction signal card when the product has no proven evidence', async () => {
+  mock({ rows: [ROW], history: () => TWO_DAYS })
+  page()
+  await pickMarket()
+  await screen.findByTestId('forecast')
+  expect(screen.queryByTestId('signal')).not.toBeInTheDocument()
 })

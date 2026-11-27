@@ -51,3 +51,18 @@ export const usePriceForecast = (country: string, s: Scope, variety: string, uni
       if (unit) p.set('unit', unit)
       return api<Forecast>(`/api/prices/forecast?${p}`)
     } })
+
+export interface Signal {
+  status: 'ok' | 'none'; reason?: string; p_up?: number; lines?: number; as_of?: string; other_markets_change?: number | null
+  evidence?: { auc: number; auc_low: number; auc_high: number; tests: number; through: string }
+}
+
+/** Direction lean from the offline model; the server returns nothing unless the product's held-out evidence passed. Needs one market. */
+export const useDirectionSignal = (country: string, s: Scope, variety: string, unit: string, enabled: boolean) =>
+  useQuery({ queryKey: [country, 'price-signal', s, variety, unit], retry: false, enabled: enabled && !!s.market,
+    queryFn: () => {
+      const p = qs(country, s)
+      if (variety) p.set('variety', variety)
+      if (unit) p.set('unit', unit)
+      return api<Signal>(`/api/prices/signal?${p}`)
+    } })

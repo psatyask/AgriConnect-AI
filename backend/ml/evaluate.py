@@ -120,6 +120,17 @@ def _fit_predict(name: str, params: dict, X_tr, y_tr, X_va, y_va, X_te, task: st
     return f(Xs[1]), f(Xs[2])
 
 
+def fit_best(name: str, tr: pd.DataFrame, va: pd.DataFrame, to_predict: pd.DataFrame, features: list[str], task: str) -> np.ndarray:
+    """Pick hyper-parameters from the small grid on the validation rows only, return predictions for `to_predict`."""
+    best = None
+    for params in ([{}] if name == "ridge" else _grid(name, task)):
+        pv, pt = _fit_predict(name, params, tr[features], _target(tr, task), va[features], _target(va, task), to_predict[features], task)
+        score = _score(task, _target(va, task), pv)
+        if best is None or score < best[0]:
+            best = (score, pt)
+    return best[1]
+
+
 def run(df: pd.DataFrame, models: list[str], n_windows: int, max_train_rows: int, features: list[str], seed: int = 0, task: str = "mae"):
     """Returns the test rows with each model's prediction in a column named after it."""
     global NUMERIC_USED
@@ -139,13 +150,7 @@ def run(df: pd.DataFrame, models: list[str], n_windows: int, max_train_rows: int
             tr = tr.iloc[rng.choice(len(tr), max_train_rows, replace=False)]
         te["window"] = f"{w.test_start.date()}..{w.test_end.date()}"
         for name in models:
-            best = None
-            for params in ([{}] if name == "ridge" else _grid(name, task)):
-                pv, pt = _fit_predict(name, params, tr[features], _target(tr, task), va[features], _target(va, task), te[features], task)
-                score = _score(task, _target(va, task), pv)  # validation dates only
-                if best is None or score < best[0]:
-                    best = (score, pt)
-            te[name] = best[1]
+            te[name] = fit_best(name, tr, va, te, features, task)
         parts.append(te)
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
 

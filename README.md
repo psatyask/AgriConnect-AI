@@ -117,3 +117,16 @@ other markets over the last 1 and 7 days. Windows run in time order with a 7-day
 hyper-parameters come from a small fixed grid on validation dates only; the confidence interval resamples whole weeks.
 Tests (`tests/test_ml_*.py`) check that features cannot see the future, that a planted pattern is found, and that random walks
 and shuffled targets show no skill.
+
+## Direction signal (offline model, shown only where it is proven)
+
+The chart card can show a lean: *if this price moves 2% or more in the next 7 days, is it more likely to go up or down?* It does not say whether the price will move or by how much.
+
+How it works, and why you can trust what you see:
+
+- An offline job (`python -m ml.predict`, needs `pip install -r backend/requirements-ml.txt`) trains LightGBM on stored USDA prices, scores it **per product** on dates it never saw, and writes two tables: `signal_evidence` and `price_signals`. The web app has no ML libraries; it only reads those tables.
+- A product gets a signal only if its evidence passes the gate: at least 300 moves tested, the low end of the 95% interval (resampling whole weeks) at AUC 0.60 or more, and the worst of the 4 test windows at 0.55 or more. A shuffled-outcome run scores 0.575, so the gate sits above what line persistence alone gets. Products that do not pass show nothing.
+- The model mostly uses what the same product did in other markets. Without those features the same test scores 0.58 and its probabilities are badly calibrated.
+- The card shows the date of the newest report used and goes quiet if the read is more than 7 days old. Re-run the job after loading new prices.
+
+Endpoint: `GET /api/prices/signal?country=US&commodity=tomato&market=...` returns `status: none` with a reason (`not_evaluated`, `no_evidence`, `needs_market`, `no_read`, `stale`) instead of a guess.

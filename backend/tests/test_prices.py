@@ -469,3 +469,43 @@ def test_stats_command_prints_what_is_stored(client, monkeypatch, capsys):
     ingest.stats()
     out = capsys.readouterr().out
     assert "US ams: 1 price observations, 2026-11-24 to 2026-11-24 (1 days), 1 markets, 1 products" in out and "Total: 1 price observations" in out
+
+
+def _signal_rows(db, passes=True, as_of=None):
+    from datetime import date, timedelta
+    from app.models import PriceSignal, SignalEvidence, utcnow
+    as_of = as_of or utcnow().date()
+    db.add(SignalEvidence(commodity="tomato", country="US", auc=0.71, auc_low=0.66, auc_high=0.75, min_window_auc=0.63, tests=900,
+                          passes=passes, evaluated_through=as_of))
+    for g, p in (("Large", 0.7), ("Medium", 0.5)):
+        db.add(PriceSignal(country="US", source="ams", market="Chicago", commodity="tomato", variety="", grade=g, unit="25 lb", as_of=as_of,
+                           p_up=p, other_markets_change=0.03, trained_through=as_of - timedelta(days=8)))
+    db.commit()
+
+
+def test_signal_only_for_products_with_passing_evidence(client):
+    from app.db import SessionLocal
+    q = "/api/prices/signal?country=US&commodity=tomato&market=Chicago"
+    assert client.get(q).json() == {"status": "none", "reason": "not_evaluated"}
+    with SessionLocal() as db:
+        _signal_rows(db, passes=False)
+    assert client.get(q).json() == {"status": "none", "reason": "no_evidence"}
+
+
+def test_signal_reads_what_the_job_wrote(client):
+    from app.db import SessionLocal
+    with SessionLocal() as db:
+        _signal_rows(db)
+    r = client.get("/api/prices/signal?country=US&commodity=tomato&market=Chicago").json()
+    assert r["status"] == "ok" and r["p_up"] == 0.6 and r["lines"] == 2 and r["evidence"]["auc_low"] == 0.66
+    assert client.get("/api/prices/signal?country=US&commodity=tomato").json()["reason"] == "needs_market"
+    assert client.get("/api/prices/signal?country=US&commodity=tomato&market=Boston").json()["reason"] == "no_read"
+
+
+def test_signal_goes_quiet_when_old(client):
+    from datetime import timedelta
+    from app.db import SessionLocal
+    from app.models import utcnow
+    with SessionLocal() as db:
+        _signal_rows(db, as_of=utcnow().date() - timedelta(days=12))
+    assert client.get("/api/prices/signal?country=US&commodity=tomato&market=Chicago").json()["reason"] == "stale"

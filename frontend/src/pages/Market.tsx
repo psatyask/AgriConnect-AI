@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import ListingCard from '../components/ListingCard'
 import { useListings } from '../api/listings'
-import { useLatestPrices, useLocations, usePriceForecast, usePriceHistory, type Scope } from '../api/prices'
+import { useLatestPrices, useLocations, useDirectionSignal, usePriceForecast, usePriceHistory, type Scope } from '../api/prices'
 import { useRegion } from '../context/RegionContext'
 import { useLanguage } from '../context/LanguageContext'
 import { getDemo } from '../data/demo'
@@ -124,6 +124,7 @@ export function Intelligence() {
   const history = usePriceHistory(region.code, scope, chosen?.variety ?? '', chosen?.unit ?? '')
   const dailyOnly = (rows[0] ?? all[0])?.period !== 'monthly'
   const fc = usePriceForecast(region.code, scope, chosen?.variety ?? '', chosen?.unit ?? '', !!chosen && !!history.data && !history.data.needs && dailyOnly)
+  const sig = useDirectionSignal(region.code, scope, chosen?.variety ?? '', chosen?.unit ?? '', !!chosen && dailyOnly).data
   const showRange = rows.some((r) => r.min != null || r.max != null)
   const showModal = rows.some((r) => r.modal != null)  // USDA terminal markets report a low-high range, never a modal price
   const showMarket = !scope.market  // name the market on each line unless one market is already chosen
@@ -212,6 +213,15 @@ export function Intelligence() {
                         <p className="font-semibold tabular-nums">{t('prices.forecast.ok', { value: money(f.value * chartF), date: f.target_date, low: money((f.low ?? f.value) * chartF), high: money((f.high ?? f.value) * chartF) })}</p>
                         <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('prices.forecast.evidence', { model: t(`prices.forecast.model.${f.model}`), skill: Math.round((f.holdout_skill ?? 0) * 100), n: f.holdout_tests })} {t('prices.forecast.range')}</p></>)
                     : fc.data ? <p style={{ color: 'var(--muted)' }}>{t(`prices.forecast.none.${fc.data.reason}`, { defaultValue: t('prices.forecast.none.too_little_history') })}</p> : null}
+                </div>)}
+              {sig?.status === 'ok' && sig.p_up != null && sig.evidence && (
+                <div className="mt-3 rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--border)' }} data-testid="signal">
+                  <b>{t('prices.signal.title')}</b>
+                  <p className="font-semibold">{sig.p_up >= 0.6 ? t('prices.signal.up', { pct: Math.round(sig.p_up * 100) })
+                    : sig.p_up <= 0.4 ? t('prices.signal.down', { pct: Math.round((1 - sig.p_up) * 100) }) : t('prices.signal.flat')}</p>
+                  {sig.other_markets_change != null && (
+                    <p className="text-xs tabular-nums" style={{ color: 'var(--muted)' }}>{t('prices.signal.others', { change: `${sig.other_markets_change >= 0 ? '+' : ''}${((Math.exp(sig.other_markets_change) - 1) * 100).toFixed(1)}%`, date: sig.as_of })}</p>)}
+                  <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('prices.signal.note', { auc: Math.round(sig.evidence.auc * 100), n: sig.evidence.tests })}</p>
                 </div>)}
               {history.data && <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t(first.period === 'monthly' ? 'prices.historyHintMonthly' : history.data?.basis === 'midpoint' ? 'prices.historyHintMid' : 'prices.historyHint', { unit: unitLabel(chartUnit || (history.data?.unit ?? first.unit)) })}</p>}
             </Card>
