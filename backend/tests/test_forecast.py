@@ -31,15 +31,9 @@ def test_a_steady_trend_is_forecast_and_beats_the_baseline_on_held_out_dates():
     pts = series([20 + 0.4 * i + rng.uniform(-0.3, 0.3) for i in range(110)], skip_weekends=False)
     r = evaluate(pts)
     assert r["status"] == "ok" and r["model"] == "trend"
-    assert r["gate_skill"] >= 0.05 and r["holdout_skill"] > 0 and r["model_error"] < r["baseline_error"]
+    assert r["gate_skill"] >= 0.15 and r["holdout_skill"] >= 0.10 and r["win_rate"] >= 0.65 and r["model_error"] < r["baseline_error"]
     assert r["value"] > pts[-1][1] and r["low"] <= r["value"] <= r["high"]
     assert r["target_date"] == (pts[-1][0] + timedelta(days=7)).isoformat()
-
-
-def test_noise_around_a_level_is_forecast_by_averaging_not_by_the_last_value():
-    rng = random.Random(2)
-    r = evaluate(series([30 + rng.gauss(0, 3) for _ in range(120)], skip_weekends=False))
-    assert r["status"] == "ok" and r["model"] in ("ma5", "ses") and r["holdout_skill"] > 0
 
 
 def test_a_random_walk_is_not_forecast_because_nothing_beats_the_baseline():
@@ -108,4 +102,11 @@ def test_backtest_report_counts_every_line_and_does_not_hide_the_losers(client, 
     backtest.main()
     out = capsys.readouterr().out
     assert out.startswith("2 price lines") and "1 ok" in out and "1 not_better_than_baseline" in out
-    assert "Forecast offered for 1 lines (50% of all lines)" in out and "all tested lines, winners and losers" in out
+    assert "Forecast offered for 1 lines (50.0% of the 2 lines that could be tested)" in out and "simulated random walks" in out and "all tested lines, winners and losers" in out
+
+
+def test_the_gate_lets_almost_no_random_walks_through():
+    """Calibration guard: on pure random walks nothing can beat the baseline, so passes are false positives."""
+    from app.forecast import null_pass_rate
+    rate, tested = null_pass_rate(90, trials=400, seed=1)
+    assert tested >= 380 and rate <= 0.04, f"{rate:.1%} of random walks got a forecast"

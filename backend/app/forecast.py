@@ -8,7 +8,9 @@ Nothing here is trained on invented data and nothing is shown unless the evidenc
 * Candidates: 5-report average, exponential smoothing, damped recent trend. Each is scored on past dates using only
   the data that existed at that date (rolling origin).
 * Split in time order, 50% / 25% / 25%: the first part picks the best candidate, the second is the gate (must beat the
-  baseline by MIN_SKILL), the last is a holdout that must not lose to the baseline. Skill is reported from the holdout.
+  baseline by MIN_SKILL), the last is a holdout (MIN_HOLDOUT_SKILL), and it must be closer than the baseline on MIN_WIN_RATE
+  of all those tests. Skill is reported from the holdout. These bars are calibrated so that pure random walks, where nothing can
+  truly beat the baseline, are rarely let through (see null_pass_rate and tests/test_forecast.py); a weaker gate passed 6-10% of them.
 * The range shown is the 10th-90th percentile of that candidate's own past errors, widened if needed to contain the value.
 """
 from __future__ import annotations
@@ -20,7 +22,9 @@ from statistics import mean
 HORIZON_DAYS = 7
 MIN_TRAIN = 20        # reports needed before the first test date
 MIN_FOLDS = 8         # tests needed in each of the gate and holdout parts
-MIN_SKILL = 0.05      # candidate must cut the baseline's average error by at least 5% on the gate part
+MIN_SKILL = 0.15      # candidate must cut the baseline's average error by at least this much on the gate part
+MIN_HOLDOUT_SKILL = 0.10  # ...and by at least this much on the holdout part
+MIN_WIN_RATE = 0.65    # ...and be closer than the baseline on at least this share of all gate + holdout tests
 MAX_STALE_DAYS = 7    # no forecast from data older than this
 CANDIDATES = ("ma5", "ses", "trend")
 
@@ -105,7 +109,10 @@ def evaluate(points: list[Point], today: date | None = None, h: int = HORIZON_DA
     evidence = {**base, "model": model, "tests": n, "gate_skill": gate_skill, "holdout_skill": hold_skill,
                 "holdout_tests": len(hold.actual), "baseline_error": _mae(hold.actual, hold.preds["naive"]),
                 "model_error": _mae(hold.actual, hold.preds[model])}
-    if gate_skill is None or hold_skill is None or gate_skill < MIN_SKILL or hold_skill <= 0:
+    judged = _slice(f, a, n)
+    wins = mean(abs(x - m) < abs(x - b) for x, m, b in zip(judged.actual, judged.preds[model], judged.preds["naive"]))
+    evidence["win_rate"] = wins
+    if (gate_skill is None or hold_skill is None or gate_skill < MIN_SKILL or hold_skill <= MIN_HOLDOUT_SKILL or wins < MIN_WIN_RATE):
         return {**evidence, "status": "no_forecast", "reason": "not_better_than_baseline"}
     errs = sorted(x - y for x, y in zip(f.actual[a:], f.preds[model][a:]))
     q = lambda p: errs[min(len(errs) - 1, max(0, round(p * (len(errs) - 1))))]  # noqa: E731
@@ -113,3 +120,27 @@ def evaluate(points: list[Point], today: date | None = None, h: int = HORIZON_DA
     return {**evidence, "status": "ok", "target_date": (last_day + timedelta(days=h)).isoformat(),
             "last_report": last_day.isoformat(), "value": round(value, 2),
             "low": round(max(0.0, value + min(q(0.1), 0.0)), 2), "high": round(value + max(q(0.9), 0.0), 2)}  # the range always contains the value
+
+
+def null_pass_rate(n_reports: int, trials: int = 500, seed: int = 0) -> tuple[float, int]:
+    """Share of simulated random walks (nothing to predict) that still get a forecast: the false-positive rate of the gate.
+
+    Returns (rate, walks that were testable). Skill is scale-free, so the walk's size does not matter.
+    """
+    import random
+    rng, ok, tested = random.Random(seed), 0, 0
+    for _ in range(trials):
+        v, vals = 30.0, []
+        for _ in range(n_reports):
+            v = max(v + rng.gauss(0, 1.0), 1.0)
+            vals.append(v)
+        pts, d = [], date(2026, 1, 5)
+        for x in vals:
+            while d.weekday() >= 5:
+                d += timedelta(days=1)
+            pts.append((d, x))
+            d += timedelta(days=1)
+        r = evaluate(pts)
+        tested += r.get("holdout_skill") is not None
+        ok += r["status"] == "ok"
+    return (ok / tested if tested else 0.0), tested

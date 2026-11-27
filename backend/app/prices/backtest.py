@@ -15,7 +15,7 @@ from statistics import median
 from sqlalchemy import func, select
 
 from ..db import SessionLocal
-from ..forecast import MIN_SKILL, evaluate
+from ..forecast import MIN_HOLDOUT_SKILL, MIN_SKILL, MIN_WIN_RATE, evaluate, null_pass_rate
 from ..models import PriceObservation as P
 
 
@@ -46,9 +46,13 @@ def main() -> None:
         print(f"Tested on dates the model had not seen: {len(tested)} lines, median skill vs 'same as latest report' = "
               f"{median(r['holdout_skill'] for r in tested):+.1%} (all tested lines, winners and losers).")
     if served:
-        print(f"Forecast offered for {len(served)} lines ({len(served) / len(all_series):.0%} of all lines). Gate: at least {MIN_SKILL:.0%} better "
-              f"on the gate dates, and not worse on the holdout dates. Their holdout skill: median {median(r['holdout_skill'] for r in served):+.1%}, "
-              f"best {max(r['holdout_skill'] for r in served):+.1%}.")
+        print(f"Forecast offered for {len(served)} lines ({len(served) / len(tested):.1%} of the {len(tested)} lines that could be tested). Gate: at least "
+              f"{MIN_SKILL:.0%} better on the gate dates, {MIN_HOLDOUT_SKILL:.0%} on the holdout dates, and closer on {MIN_WIN_RATE:.0%} of tests. "
+              f"Their holdout skill: median {median(r['holdout_skill'] for r in served):+.1%}, best {max(r['holdout_skill'] for r in served):+.1%}.")
+        n_typ = round(median(r["history_reports"] for r in tested))
+        luck, _ = null_pass_rate(n_typ)
+        print(f"For comparison, {luck:.1%} of simulated random walks of {n_typ} reports (nothing to predict) pass the same check by luck alone. "
+              "Only a pass rate clearly above that is evidence of real skill.")
         print("Models chosen:", ", ".join(f"{n} {k}" for k, n in Counter(r['model'] for r in served).most_common()))
     else:
         print("No line passed the evidence check, so the app offers no forecasts yet.")

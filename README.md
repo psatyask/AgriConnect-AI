@@ -75,8 +75,10 @@ it has beaten a plain baseline on past dates**. Otherwise it says why there is n
   year) cannot be tested; load more history with `python -m app.prices.ingest ams 365` to extend the evidence.
 - **Candidates:** 5-report average, exponential smoothing, damped recent trend (`backend/app/forecast.py`, no ML dependencies).
 - **Test:** rolling origin, using only data that existed at each past date. Dates are split in time order 50% / 25% / 25%:
-  the first part picks the best candidate, the second is the gate (at least 5% lower average error than the baseline), the
-  last is a holdout that must not lose to the baseline. The skill shown to users comes from the holdout.
+  the first part picks the best candidate, the second is the gate (at least 15% lower average error than the baseline), the
+  last is a holdout (at least 10%), and the method must be closer than the baseline on 65% of those tests. The skill shown to
+  users comes from the holdout. The bars were set by simulation: an earlier, weaker gate (5% / 0%) let 6-10% of pure random
+  walks through, which is no better than luck; this one lets through about 1-3%, and a test enforces it.
 - **Range:** the 10th-90th percentile of that candidate's own past errors, widened if needed to contain the forecast.
 - **Not forecast:** too little history, stale data (latest report over 7 days old), monthly sources, or no method beating the baseline.
 
@@ -84,7 +86,7 @@ Evidence across everything stored (these are the numbers to quote, from real sto
 
 ```
 cd backend
-python -m app.prices.backtest        # lines tested, share that pass, median skill (all lines, winners and losers)
+python -m app.prices.backtest        # lines tested, share that pass vs the by-luck rate, median skill (all lines, winners and losers)
 ```
 
 API: `GET /api/prices/forecast?country=US&commodity=tomato&unit=...&variety=...` (same series rules as `/api/prices/history`).
