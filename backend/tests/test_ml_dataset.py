@@ -34,7 +34,7 @@ def test_features_never_see_the_future():
     changed = p.copy()
     changed.loc[changed.obs_date > cut, "price"] *= 3.0
     after = build(changed)
-    cols = ["r1", "r3", "r7", "r14", "r28", "vol28", "flat28", "z90", "cm_r1", "cm_r7", "cm_n"]
+    cols = ["r1", "r3", "r7", "r14", "r28", "vol28", "flat28", "z90", "cm_r1", "cm_r7", "cm_n", "xm_r1", "xm_r7", "xm_n", "sm_r7", "sm_n"]
     a = base[base.date <= cut].set_index(["date", "line"])[cols].sort_index()
     b = after[after.date <= cut].set_index(["date", "line"])[cols].sort_index()
     common = a.index.intersection(b.index)
@@ -58,3 +58,21 @@ def test_a_line_with_no_report_seven_days_later_gets_no_row():
     p = p[p.obs_date != pd.Timestamp("2026-03-15")]
     df = build(p)
     assert pd.Timestamp("2026-03-08") not in set(df.date)  # its target day is missing, and is never filled in
+
+
+def test_other_market_and_same_market_features_are_kept_apart():
+    """Market A has two packages, market B and C one each. For an A line: other markets = B and C, same market = the other A line."""
+    rng, rows = np.random.default_rng(2), []
+    for market, unit in (("A", "25 lb"), ("A", "50 lb"), ("B", "25 lb"), ("C", "25 lb")):
+        p = 30.0
+        for d in pd.date_range("2026-01-01", periods=120):
+            p *= float(np.exp(rng.normal(0, 0.02)))
+            rows.append({"market": market, "commodity": "tomato", "variety": "", "grade": "", "unit": unit, "obs_date": d, "price": p})
+    df = build(pd.DataFrame(rows))
+    day = df[df.date == df.date.iloc[0]].set_index("line")
+    a25 = day.loc["A|tomato|||25 lb"]
+    assert (a25.cm_n, a25.xm_n, a25.sm_n) == (3, 2, 1)
+    assert a25.sm_r7 == pytest.approx(day.loc["A|tomato|||50 lb"].r7, abs=1e-5)
+    assert a25.xm_r7 == pytest.approx((day.loc["B|tomato|||25 lb"].r7 + day.loc["C|tomato|||25 lb"].r7) / 2, abs=1e-5)
+    b = day.loc["B|tomato|||25 lb"]
+    assert (b.cm_n, b.xm_n, b.sm_n) == (3, 3, 0) and np.isnan(b.sm_r7)  # counts are price lines: A has two

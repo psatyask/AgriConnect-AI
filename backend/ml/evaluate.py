@@ -2,13 +2,16 @@
 
     pip install -r requirements-ml.txt
     python -m ml.evaluate                       # all models, 4 test windows
-    python -m ml.evaluate --null                # same pipeline with the target shuffled inside each line (must show no skill)
+    python -m ml.evaluate --null                # target shuffled inside each line. Kills timing skill but keeps each line's own base rates,
+                                                # so for --task move a high AUC means the model is ranking lines by how volatile they always are
     python -m ml.evaluate --ablate cross        # without the other-markets features
     python -m ml.evaluate --task rmse           # squared error instead of absolute error (rewards getting big moves right)
     python -m ml.evaluate --task move           # will the price move 2% or more in 7 days? AUC vs the rule "it moved last week"
     python -m ml.evaluate --task direction      # among lines that did move 2%+, will it be up or down? AUC vs momentum / reversion rules
     python -m ml.evaluate --ablate flat         # without the "share of unchanged days" and volatility features (reporting-habit check)
     python -m ml.evaluate --ablate ids          # without product / market / package identity columns
+    python -m ml.evaluate --ablate samemkt      # keep only what OTHER markets did (drop same-market other packages and the all-lines mean)
+    python -m ml.evaluate --ablate othermkt     # keep only same-market other lines
     python -m ml.evaluate --models lgbm --windows 2 --max-train-rows 300000    # quicker
 
 Target: y = log(price in 7 days / price today). The baseline predicts y = 0 ("same as today").
@@ -28,7 +31,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from .dataset import CATEGORICAL, CROSS, HORIZON, NUMERIC, build
+from .dataset import CATEGORICAL, CM, CROSS, HORIZON, NUMERIC, SM, XM, build
 
 warnings.filterwarnings("ignore")
 GAP = HORIZON
@@ -220,7 +223,9 @@ def report_move(test: pd.DataFrame, models: list[str]) -> None:
     m = (test["y"].abs() >= MOVE).astype(int).to_numpy()
     print(f"\n{len(test):,} test rows. A move (7-day change of {MOVE:.0%}+, either direction) happened in {m.mean():.1%} of them.")
     print("AUC = chance of ranking a line that moved above one that did not (0.5 = no idea, 1.0 = perfect):")
-    _auc_report(test, models, m, {"moved last week (rule)": test["r7"].abs().fillna(0).to_numpy()})
+    _auc_report(test, models, m, {"moved last week (rule)": test["r7"].abs().fillna(0).to_numpy(),
+                                  "its own past volatility (rule)": test["vol28"].fillna(0).to_numpy(),
+                                  "share of days it changed (rule)": (1 - test["flat28"].fillna(1)).to_numpy()})
 
 
 def report_direction(test: pd.DataFrame, models: list[str]) -> None:
@@ -229,7 +234,9 @@ def report_direction(test: pd.DataFrame, models: list[str]) -> None:
     print("AUC = chance of ranking a line that went up above one that went down (0.5 = no idea):")
     _auc_report(test, models, up, {"momentum (last week's change)": test["r7"].fillna(0).to_numpy(),
                                    "reversion (minus last week's change)": -test["r7"].fillna(0).to_numpy(),
-                                   "other markets' change (cm_r7)": test["cm_r7"].fillna(0).to_numpy()})
+                                   "all other lines' change (cm_r7)": test["cm_r7"].fillna(0).to_numpy(),
+                                   "OTHER MARKETS' change (xm_r7)": test["xm_r7"].fillna(0).to_numpy(),
+                                   "same market, other lines (sm_r7)": test["sm_r7"].fillna(0).to_numpy()})
 
 
 def main() -> None:
@@ -239,7 +246,7 @@ def main() -> None:
     ap.add_argument("--max-train-rows", type=int, default=1_500_000)
     ap.add_argument("--task", choices=["mae", "rmse", "move", "direction"], default="mae")
     ap.add_argument("--null", action="store_true", help="shuffle the target inside each line: any 'skill' is then a pipeline bug")
-    ap.add_argument("--ablate", choices=["cross", "flat", "ids"], help="drop a feature group to see what it adds")
+    ap.add_argument("--ablate", choices=["cross", "flat", "ids", "samemkt", "othermkt"], help="drop a feature group to see what it adds")
     a = ap.parse_args()
     from app.db import engine
     from .dataset import load_panel
@@ -254,7 +261,7 @@ def main() -> None:
         rng = np.random.default_rng(1)
         df["y"] = df.groupby("line")["y"].transform(lambda s: rng.permutation(s.to_numpy()))
         print("NULL RUN: targets shuffled inside each line.")
-    dropped = {"cross": CROSS, "flat": FLAT, "ids": CATEGORICAL}.get(a.ablate, [])
+    dropped = {"cross": CROSS, "flat": FLAT, "ids": CATEGORICAL, "samemkt": CM + SM, "othermkt": CM + XM}.get(a.ablate, [])
     features = [c for c in NUMERIC + CATEGORICAL if c not in dropped]
     if dropped:
         print(f"ABLATION: without {', '.join(dropped)}")

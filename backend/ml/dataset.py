@@ -14,9 +14,12 @@ import pandas as pd
 HORIZON = 7
 CARRY_DAYS = 5          # a missing day takes the last report, if it is at most this old
 SEASON = 364            # same weekday one year earlier
-NUMERIC = ["r1", "r3", "r7", "r14", "r28", "vol28", "z90", "yoy", "flat28", "cm_r1", "cm_r7", "cm_n", "dow", "woy", "month"]
+NUMERIC = ["r1", "r3", "r7", "r14", "r28", "vol28", "z90", "yoy", "flat28", "cm_r1", "cm_r7", "cm_n",
+           "xm_r1", "xm_r7", "xm_n", "sm_r7", "sm_n", "dow", "woy", "month"]
 CATEGORICAL = ["commodity_code", "market_code", "unit_code"]
-CROSS = ["cm_r1", "cm_r7", "cm_n"]
+# cm = all other lines of the same product; xm = strictly OTHER markets; sm = other lines in the SAME market (other packages, grades)
+CM, XM, SM = ["cm_r1", "cm_r7", "cm_n"], ["xm_r1", "xm_r7", "xm_n"], ["sm_r7", "sm_n"]
+CROSS = CM + XM + SM
 
 
 def load_panel(engine, source: str = "ams", country: str = "US") -> pd.DataFrame:
@@ -33,21 +36,28 @@ def load_panel(engine, source: str = "ams", country: str = "US") -> pd.DataFrame
     return df
 
 
-def _other_markets_mean(values: np.ndarray, groups: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """For each column, the mean over the OTHER columns of the same group (same product), and how many there were."""
-    mean, count = np.full(values.shape, np.nan, dtype=np.float32), np.zeros(values.shape, dtype=np.float32)
-    for g in np.unique(groups):
-        cols = np.where(groups == g)[0]
-        if len(cols) < 2:
-            continue
-        block = values[:, cols]
-        ok = ~np.isnan(block)
-        total, n = np.where(ok, block, 0).sum(axis=1, keepdims=True), ok.sum(axis=1, keepdims=True)
-        others = n - ok
+def _peer_means(values: np.ndarray, commodity: np.ndarray, market: np.ndarray) -> dict[str, tuple[np.ndarray, np.ndarray]]:
+    """For each column (a price line), the mean of `values` over its peers and the number of peers reporting, three ways:
+    all: every other line of the same product; other: same product in OTHER markets; same: same product, same market."""
+    shape = values.shape
+    out = {k: (np.full(shape, np.nan, dtype=np.float32), np.zeros(shape, dtype=np.float32)) for k in ("all", "other", "same")}
+    ok = ~np.isnan(values)
+    z = np.where(ok, values, 0.0)
+
+    def fill(name: str, cols: np.ndarray, total: np.ndarray, n: np.ndarray) -> None:
         with np.errstate(invalid="ignore", divide="ignore"):
-            mean[:, cols] = np.where(others > 0, (total - np.where(ok, block, 0)) / others, np.nan)
-        count[:, cols] = others
-    return mean, count
+            out[name][0][:, cols] = np.where(n > 0, total / np.where(n > 0, n, 1), np.nan)
+        out[name][1][:, cols] = n
+    for g in np.unique(commodity):
+        cg = np.where(commodity == g)[0]
+        tg, ng = z[:, cg].sum(axis=1, keepdims=True), ok[:, cg].sum(axis=1, keepdims=True)
+        fill("all", cg, tg - z[:, cg], ng - ok[:, cg])
+        for m in np.unique(market[cg]):
+            cm_ = cg[market[cg] == m]
+            tm, nm = z[:, cm_].sum(axis=1, keepdims=True), ok[:, cm_].sum(axis=1, keepdims=True)
+            fill("other", cm_, np.broadcast_to(tg - tm, (shape[0], len(cm_))), np.broadcast_to(ng - nm, (shape[0], len(cm_))))
+            fill("same", cm_, tm - z[:, cm_], nm - ok[:, cm_])
+    return out
 
 
 def build(panel: pd.DataFrame) -> pd.DataFrame:
@@ -73,8 +83,13 @@ def build(panel: pd.DataFrame) -> pd.DataFrame:
     feats["z90"] = lp - pd.DataFrame(lp, index=days).rolling(90, min_periods=30).mean().to_numpy()
     feats["yoy"] = lp - shift(lp, SEASON)
     codes = {c: meta[c].astype("category").cat.codes.to_numpy() for c in ("commodity", "market", "unit")}
-    feats["cm_r1"], feats["cm_n"] = _other_markets_mean(feats["r1"], codes["commodity"])
-    feats["cm_r7"], _ = _other_markets_mean(feats["r7"], codes["commodity"])
+    p1 = _peer_means(feats["r1"], codes["commodity"], codes["market"])
+    p7 = _peer_means(feats["r7"], codes["commodity"], codes["market"])
+    feats["cm_r1"], feats["cm_n"] = p1["all"]
+    feats["cm_r7"] = p7["all"][0]
+    feats["xm_r1"], feats["xm_n"] = p1["other"]
+    feats["xm_r7"] = p7["other"][0]
+    feats["sm_r7"], feats["sm_n"] = p7["same"]
     with np.errstate(invalid="ignore"):
         target = np.log(np.roll(raw, -HORIZON, axis=0)) - np.log(raw)
     target[-HORIZON:] = np.nan  # nothing exists beyond the last day
