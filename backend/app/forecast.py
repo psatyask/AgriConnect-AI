@@ -140,7 +140,8 @@ def evaluate(points: list[Point], today: date | None = None, h: int = HORIZON_DA
     gate_skill, hold_skill = _skill(gate, model), _skill(hold, model)
     evidence = {**base, "model": model, "tests": n, "gate_skill": gate_skill, "holdout_skill": hold_skill,
                 "holdout_tests": len(hold.actual), "baseline_error": _mae(hold.actual, hold.preds["naive"]),
-                "model_error": _mae(hold.actual, hold.preds[model])}
+                "model_error": _mae(hold.actual, hold.preds[model]),
+                "candidate_skills": {k: _skill(hold, k) for k in f.preds if k != "naive"}}  # every method on the holdout, for the report
     judged = _slice(f, a, n)
     wins = mean(abs(x - m) < abs(x - b) for x, m, b in zip(judged.actual, judged.preds[model], judged.preds["naive"]))
     evidence["win_rate"] = wins

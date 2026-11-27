@@ -101,7 +101,7 @@ def test_backtest_report_counts_every_line_and_does_not_hide_the_losers(client, 
     monkeypatch.setattr("sys.argv", ["backtest"])
     backtest.main()
     out = capsys.readouterr().out
-    assert out.startswith("2 price lines") and "1 ok" in out and "1 not_better_than_baseline" in out
+    assert "Each method on its own" in out and out.startswith("2 price lines") and "1 ok" in out and "1 not_better_than_baseline" in out
     assert "Forecast offered for 1 lines (50.0% of the 2 lines that could be tested)" in out and "simulated random walks" in out and "all tested lines, winners and losers" in out
 
 

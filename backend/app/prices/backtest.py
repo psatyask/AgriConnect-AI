@@ -45,6 +45,16 @@ def main() -> None:
     if tested:
         print(f"Tested on dates the model had not seen: {len(tested)} lines, median skill vs 'same as latest report' = "
               f"{median(r['holdout_skill'] for r in tested):+.1%} (all tested lines, winners and losers).")
+    per_method: dict[str, list[float]] = defaultdict(list)
+    for r in tested:
+        for k, v in r["candidate_skills"].items():
+            if v is not None:
+                per_method[k].append(v)
+    if per_method:
+        names = {"ma5": "5-report average", "ses": "exponential smoothing", "trend": "damped trend", "seas": "same week last year", "seas_adj": "today + last year's change"}
+        print("Each method on its own, median skill vs 'same as latest report' on the holdout dates (lines tested):")
+        for k, v in sorted(per_method.items(), key=lambda kv: -median(kv[1])):
+            print(f"  {names.get(k, k)}: {median(v):+.1%} ({len(v)} lines, better than the baseline on {sum(x > 0 for x in v) / len(v):.0%} of them)")
     if served:
         print(f"Forecast offered for {len(served)} lines ({len(served) / len(tested):.1%} of the {len(tested)} lines that could be tested). Gate: at least "
               f"{MIN_SKILL:.0%} better on the gate dates, {MIN_HOLDOUT_SKILL:.0%} on the holdout dates, and closer on {MIN_WIN_RATE:.0%} of tests. "
