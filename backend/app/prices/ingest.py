@@ -4,6 +4,7 @@
     python -m app.prices.ingest run          # fetch all mapped crops and upsert
     python -m app.prices.ingest probe-nass   # US: check the real USDA response format
     python -m app.prices.ingest nass         # US: load monthly state prices received (needs NASS_API_KEY)
+    python -m app.prices.ingest stats          # what is stored: rows, date range, markets, products per source
     python -m app.prices.ingest ams [DAYS]   # US terminal market vegetable prices, last DAYS days (default 14); needs MARS_API_KEY
     python -m app.prices.ingest refresh      # refresh every configured source now (the running app also does this itself, see PRICE_REFRESH_HOURS)
     python -m app.prices.ingest ams-range 2026-07-22 2026-07-29 [TITLE_TEXT]   # same, for an exact window, optionally only reports whose title contains the text
@@ -129,6 +130,22 @@ def probe_ams(arg: str = "") -> None:
     for r in found[:150]:
         print(r.get("slug_id"), "|", r.get("report_title"), "|", r.get("report_date"))
     print(f"{len(found)} reports match" + (" (showing 150; add another word to narrow)" if len(found) > 150 else ""))
+
+
+def stats() -> None:
+    """What is stored, straight from the database: the numbers to quote about the data."""
+    from sqlalchemy import func, select
+    with SessionLocal() as db:
+        rows = db.execute(select(PriceObservation.country, PriceObservation.source, func.count(), func.min(PriceObservation.obs_date),
+                                 func.max(PriceObservation.obs_date), func.count(func.distinct(PriceObservation.market)),
+                                 func.count(func.distinct(PriceObservation.commodity)))
+                          .group_by(PriceObservation.country, PriceObservation.source).order_by(PriceObservation.country, PriceObservation.source)).all()
+    if not rows:
+        print("No prices stored yet.")
+    for country, source, n, first, last, markets, crops in rows:
+        print(f"{country} {source}: {n:,} price observations, {first} to {last} ({(last - first).days + 1} days), {markets} markets, {crops} products")
+    if rows:
+        print(f"Total: {sum(r[2] for r in rows):,} price observations")
 
 
 def run_ams(days: int | None = None, begin: date | None = None, end: date | None = None, only: str = "") -> None:
@@ -285,6 +302,8 @@ if __name__ == "__main__":
         migrate()
     if cmd == "csv" and len(sys.argv) in (3, 5) and (len(sys.argv) == 3 or sys.argv[3] == "--since"):
         load_csv(sys.argv[2], date.fromisoformat(sys.argv[4]) if len(sys.argv) == 5 else None)
+    elif cmd == "stats":
+        stats()
     elif cmd == "ams":
         run_ams()
     elif cmd == "ams-range" and len(sys.argv) in (4, 5):  # a narrow window, e.g. to inspect one day's duplicates quickly

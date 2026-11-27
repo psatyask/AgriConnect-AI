@@ -459,3 +459,13 @@ def test_ams_range_can_be_limited_to_reports_whose_title_matches(client, monkeyp
     monkeypatch.setattr(ams, "fetch_report_rows", lambda slug, begin, end, gaps=None: asked.append(slug) or [])
     ingest.run_ams(begin=d(2026, 1, 1), end=d(2026, 1, 5), only="philadelphia")
     assert asked == ["2"] and "1 terminal market reports found" in capsys.readouterr().out
+
+
+def test_stats_command_prints_what_is_stored(client, monkeypatch, capsys):
+    from app.prices import ams, ingest
+    with SessionLocal() as db:
+        ingest.upsert(db, [ams.parse_record({"report_date": "11/24/2026", "market_location_state": "GA", "market_location_name": "Atlanta Terminal Market",
+                                              "commodity": "Apples", "package": "cartons", "low_price": "38", "high_price": "39"})])
+    ingest.stats()
+    out = capsys.readouterr().out
+    assert "US ams: 1 price observations, 2026-11-24 to 2026-11-24 (1 days), 1 markets, 1 products" in out and "Total: 1 price observations" in out
