@@ -92,3 +92,24 @@ python -m app.prices.backtest        # lines tested, share that pass vs the by-l
 ```
 
 API: `GET /api/prices/forecast?country=US&commodity=tomato&unit=...&variety=...` (same series rules as `/api/prices/history`).
+
+## Gradient-boosting forecast experiment (offline)
+
+`backend/ml/` tests LightGBM, XGBoost and Ridge against "same price as today" on the stored prices. It is separate from the web
+app (extra libraries in `backend/requirements-ml.txt`), and nothing is shown to users from it until a model proves itself.
+
+```
+cd backend
+pip install -r requirements-ml.txt
+python -m ml.evaluate --models lgbm --windows 2 --max-train-rows 300000   # quick first run
+python -m ml.evaluate                                                     # all models, 4 test windows
+python -m ml.evaluate --null                                              # target shuffled inside each line: must show no skill
+python -m ml.evaluate --ablate cross                                      # without the other-markets features
+```
+
+Target: log(price in 7 days / price today). Features (only what is known on that date): price changes over 1/3/7/14/28 days,
+volatility, share of unchanged days, level vs the 90-day mean and vs a year ago, calendar, and what the same product did in
+other markets over the last 1 and 7 days. Windows run in time order with a 7-day gap before validation and before test;
+hyper-parameters come from a small fixed grid on validation dates only; the confidence interval resamples whole weeks.
+Tests (`tests/test_ml_*.py`) check that features cannot see the future, that a planted pattern is found, and that random walks
+and shuffled targets show no skill.
