@@ -20,6 +20,12 @@ export const IN: RegionPack = {
     { id: 'chilli', nameKey: 'commodities.chilli', categoryKey: 'categories.spices', priceUnit: 'quintal' },
     { id: 'maize', nameKey: 'commodities.maize', categoryKey: 'categories.cereals', priceUnit: 'quintal' },
   ],
-  heroImage: { src: '/images/hero/hero-in.jpg', altKey: 'hero.imageAlt.IN', scene: 'paddy' },
+  heroImages: [
+    { src: '/images/hero/hero-india.webp', altKey: 'hero.alts.inGroup', focus: '40% 50%' },
+    { src: '/images/hero/hero-india-2.webp', altKey: 'hero.alts.inPhone', focus: '18% 50%' },
+    { src: '/images/hero/hero-in.webp', altKey: 'hero.alts.inField', focus: '18% 50%' },
+    { src: '/images/hero/hero-section.webp', altKey: 'hero.alts.sapling', focus: '45% 50%' },
+  ],
+  heroScene: 'paddy',
   demoOnly: true,
 }

@@ -8,7 +8,7 @@ import { useLanguage } from '../context/LanguageContext'
 import { getDemo } from '../data/demo'
 import { formatMoney, formatNumber } from '../utils/format'
 import PriceChart from '../components/PriceChart'
-import HeroArt from '../components/art/HeroArt'
+import HeroCarousel from '../components/art/HeroCarousel'
 import { FieldBand, HeroPattern, MiniGraph } from '../components/art/Decor'
 import { LANGUAGES } from '../config/languages'
 import CropIcon, { cropBg } from '../components/art/CropIcon'
@@ -39,7 +39,7 @@ export default function Home() {
   return (
     <>
       <section className="mx-auto mt-6 max-w-6xl px-4">
-        <div className="relative grid items-center gap-8 overflow-hidden rounded-3xl bg-forest p-8 text-white md:grid-cols-2 md:p-14">
+        <div className="relative grid items-center gap-8 overflow-hidden rounded-3xl bg-forest p-8 text-white md:grid-cols-[5fr_7fr] md:p-12">
           <HeroPattern />
           <div className="relative">
             <h1 className="font-display text-4xl font-extrabold leading-tight md:text-5xl">{t('hero.title')}</h1>
@@ -50,11 +50,10 @@ export default function Home() {
             </div>
           </div>
           <div className="relative">
-            <HeroArt key={region.code} scene={region.heroImage.scene} label={t(region.heroImage.altKey)} src={region.heroImage.src} />
+            <HeroCarousel key={region.code} pics={region.heroImages} scene={region.heroScene} fallbackAltKey={`hero.imageAlt.${region.code}`} />
             <span className="absolute -left-3 top-6 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-forest shadow-lg"><Store size={14} className="text-brand" aria-hidden />Direct from farmers</span>
             <span className="absolute -right-2 top-24 flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-forest shadow-lg"><TrendingUp size={14} className="text-brand" aria-hidden />Market prices</span>
             <span className="absolute -bottom-3 left-8 flex items-center gap-2 rounded-xl bg-lime px-3 py-2 text-xs font-bold text-forest shadow-lg"><Sparkles size={14} aria-hidden />AI insights</span>
-            {!region.heroImage.src && <p className="mt-5 text-center text-xs text-green-100/80">{t('hero.imageSlot')}</p>}
           </div>
         </div>
       </section>

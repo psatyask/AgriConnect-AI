@@ -38,8 +38,9 @@ export interface RegionPack {
   bushelWeightKg?: Record<string, number>
   hierarchy: string[]
   commodities: CommodityDef[]
-  /** Hero image slot. Placeholder until licensed photos are supplied. */
-  heroImage: { src: string | null; altKey: string; scene: string }
+  /** Hero pictures for this country (rotated on the home page). `scene` is the built-in illustration shown if none of them load. */
+  heroImages: { src: string; altKey: string; focus?: string }[]
+  heroScene: string
   /** Marks every datum in this pack as demonstration data (Phase 1 only). */
   demoOnly: boolean
 }

@@ -1,9 +1,6 @@
-Hero photos go here. Use exactly these file names:
+Hero pictures shown on the home page. The app uses the optimised .webp files in this folder (about 1400 px wide, under 300 KB).
+Full-size originals are kept in frontend/hero-src/ (not served to visitors).
 
-  hero-in.jpg   shown when India is selected
-  hero-us.jpg   shown when the United States is selected
-
-Tips: landscape photo, about 1600 x 1040 px, under 300 KB (JPG or compress it first).
-Only use photos you own or that are licensed for this use (keep the license note).
-If a file is missing, the app shows its built-in illustration instead.
-After adding files, rebuild:  python app.py --rebuild
+To add a picture: put the original in hero-src/, save a ~1400 px .webp here, add it to the country list in
+src/regions/in.ts or us.ts (heroImages), and add its description to the hero.alts strings.
+These pictures look AI-generated, so descriptions say "Illustration". Keep the licence note for any real photo you add.

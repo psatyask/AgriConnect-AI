@@ -16,13 +16,17 @@ describe('illustrations', () => {
     }
   })
 
-  it('hero illustration follows the selected country', async () => {
+  it('hero pictures follow the selected country', async () => {
     const user = userEvent.setup()
     render(<AppProviders><MemoryRouter><Navbar /><Home /></MemoryRouter></AppProviders>)
-    expect(screen.getByRole('img', { name: /Indian farmland/ })).toBeInTheDocument()
+    const srcs = () => [...screen.getByTestId('hero-carousel').querySelectorAll('img')].map((i) => i.getAttribute('src'))
+    expect(srcs()).toEqual(['/images/hero/hero-india.webp', '/images/hero/hero-india-2.webp', '/images/hero/hero-in.webp', '/images/hero/hero-section.webp'])
+    expect(screen.getByRole('img', { name: /farmers in a field look at crop data/ })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Country' }))
     await user.click(screen.getByRole('option', { name: /United States/ }))
-    expect(screen.getByRole('img', { name: /American farm/ })).toBeInTheDocument()
-    expect(screen.queryByRole('img', { name: /Indian farmland/ })).toBeNull()
+    expect(srcs()).toEqual(['/images/hero/hero-us.webp', '/images/hero/us-farmer-hero-1.webp', '/images/hero/hero-section.webp'])
+    expect(screen.getByRole('img', { name: /cowboy hat/ })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Show picture 2 of 3' }))
+    expect(screen.getByRole('img', { name: /walks between crop rows/ })).toBeInTheDocument()
   })
 })

@@ -30,6 +30,16 @@ const en = {
     explore: 'Explore Marketplace',
     ask: 'Ask AI Assistant',
     imageSlot: 'Licensed photo slot',
+    carousel: "Farm pictures",
+    showPicture: "Show picture {{n}} of {{total}}",
+    alts: {
+      inGroup: "Illustration: farmers in a field look at crop data on a tablet at sunrise",
+      inPhone: "Illustration: a farmer checks crop information on his phone in a green field",
+      inField: "Illustration: a smiling farmer stands in a field at sunrise with a tractor and drone behind him",
+      sapling: "Illustration: hands hold a young plant in soil, with farm data on a screen behind",
+      usFarmer: "Illustration: a farmer in a cowboy hat stands in a field at sunrise with a tractor and silos behind him",
+      usField: "Illustration: a farmer walks between crop rows with weather sensors and a drone overhead",
+    },
     imageAlt: {
       IN: 'Indian farmland and farmers (placeholder)',
       US: 'American farm landscape (placeholder)',
