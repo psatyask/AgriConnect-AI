@@ -124,6 +124,21 @@ const en = {
     oilseeds: 'Oilseeds',
   },
   home: {
+    live: {
+      reports: "price reports stored",
+      products: "products with prices",
+      markets: "markets",
+      newest: "newest report",
+    },
+    leans: {
+      title: "Which way prices lean today",
+      sub: "If a price moves 2% or more next week, these products show the clearest lean. Only products with proven past accuracy are listed.",
+      all: "See all products",
+    },
+    liveCta: {
+      title: "Live prices",
+      body: "Browse real USDA terminal market prices by crop, market and package, with history and the direction signal.",
+    },
     search: 'Search',
     cropLabel: 'Crop',
     locationLabel: 'Location',

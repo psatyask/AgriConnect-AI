@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom'
+import { useSignalOverview, usePriceSummary } from '../api/prices'
+import { LeanBar } from '../components/Lean'
 import { useTranslation } from 'react-i18next'
 import { BarChart3, Globe, MessageCircle, Search, Sparkles, Sprout, Store, TrendingUp, Users } from 'lucide-react'
 import { useRegion } from '../context/RegionContext'
@@ -19,7 +21,7 @@ const BENEFITS: [string, string][] = [
 ]
 const FAQ = [
   ['Are the prices guaranteed?', 'No. Market prices are reports from public sources, not guaranteed selling prices.'],
-  ['Is this live data?', 'Not yet. Everything marked DEMO is sample content used to show the layout.'],
+  ['Is this live data?', 'Prices and direction signals for the United States are real USDA reports, refreshed automatically. Anything marked DEMO is sample content used to show the layout.'],
 ]
 
 export default function Home() {
@@ -28,6 +30,11 @@ export default function Home() {
   const { language } = useLanguage()
   const demo = getDemo(region.code)
   const money = (n: number) => formatMoney(n, region, language.code)
+  const summary = usePriceSummary(region.code).data
+  const live = (summary?.reports ?? 0) > 0  // real stored prices exist for this region
+  const signals = useSignalOverview(region.code).data?.items ?? []
+  const lean = (i: { up: number; down: number; even: number }) => (i.up - i.down) / (i.up + i.down + i.even)
+  const leaning = [...signals].sort((a, b) => Math.abs(lean(b)) - Math.abs(lean(a))).slice(0, 6)
 
   return (
     <>
@@ -66,8 +73,11 @@ export default function Home() {
       </form>
 
       <ul className="mx-auto mt-10 grid max-w-6xl grid-cols-2 gap-3 px-4 md:grid-cols-4">
-        {([[Globe, `${regions.length}`, 'Countries'], [Sprout, `${region.commodities.length}`, 'Crops in this region'],
-          [Users, `${LANGUAGES.length}`, 'Languages listed'], [Store, `${demo?.listings.length ?? 0}`, 'Demo listings']] as const).map(([Icon, n, label]) => (
+        {((live && summary
+          ? [[BarChart3, formatNumber(summary.reports, language.code), t('home.live.reports')], [Sprout, `${summary.products}`, t('home.live.products')],
+            [Store, `${summary.markets}`, t('home.live.markets')], [TrendingUp, summary.newest ?? '', t('home.live.newest')]]
+          : [[Globe, `${regions.length}`, 'Countries'], [Sprout, `${region.commodities.length}`, 'Crops in this region'],
+            [Users, `${LANGUAGES.length}`, 'Languages listed'], [Store, `${demo?.listings.length ?? 0}`, 'Demo listings']]) as readonly (readonly [typeof Globe, string, string])[]).map(([Icon, n, label]) => (
           <li key={label}><Card className="flex items-center gap-3 !p-4"><span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand/10 text-brand"><Icon size={22} aria-hidden /></span>
             <div><div className="font-display text-xl font-extrabold">{n}</div><div className="text-xs" style={{ color: 'var(--muted)' }}>{label}</div></div></Card></li>
         ))}
@@ -82,6 +92,21 @@ export default function Home() {
           ))}
         </ul>
       </Section>
+
+      {live && leaning.length > 0 && (
+        <Section title={t('home.leans.title')}>
+          <p className="mb-3 text-sm" style={{ color: 'var(--muted)' }}>{t('home.leans.sub')}</p>
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="home-leans">
+            {leaning.map((i) => (
+              <li key={i.commodity}><Link to={`/intelligence?crop=${i.commodity}`} className="block rounded-2xl border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md" style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
+                <div className="mb-3 flex items-center gap-3"><span className="flex h-11 w-11 items-center justify-center rounded-xl" style={{ background: cropBg(i.commodity) }}><CropIcon id={i.commodity} size={32} /></span>
+                  <div><b>{t(region.commodities.find((c) => c.id === i.commodity)?.nameKey ?? 'home.cropLabel')}</b>
+                    <p className="text-xs font-semibold" style={{ color: lean(i) > 0 ? 'var(--up)' : 'var(--down)' }}>{lean(i) > 0 ? '▲ ' + t('forecastPage.verdict.up') : '▼ ' + t('forecastPage.verdict.down')}</p></div></div>
+                <LeanBar up={i.up} down={i.down} even={i.even} />
+              </Link></li>))}
+          </ul>
+          <Link to="/forecasting" className={`${btnGhost} mt-4`}>{t('home.leans.all')}</Link>
+        </Section>)}
 
       <Section title={t('home.featuredListings')} badge>
         {demo ? (
@@ -99,6 +124,7 @@ export default function Home() {
         ) : <EmptyRegion />}
       </Section>
 
+      {!live && (<>
       <Section title={t('home.priceDashboard')} badge>
         {demo ? (
           <Card><div className="overflow-x-auto"><table className="w-full text-sm">
@@ -117,6 +143,14 @@ export default function Home() {
         {demo ? <Card><PriceChart data={demo.series} />
           <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t(`commodities.${demo.chartCommodity}`)} · {region.currency.code} / {t(`units.${demo.chartUnit}`)}</p></Card> : <EmptyRegion />}
       </Section>
+
+      </>)}
+
+      {live && (
+        <Section title={t('home.liveCta.title')}>
+          <Card className="flex flex-wrap items-center justify-between gap-4"><p className="max-w-xl text-sm" style={{ color: 'var(--muted)' }}>{t('home.liveCta.body')}</p>
+            <Link to="/intelligence" className={btnPrimary}>{t('nav.intelligence')}</Link></Card>
+        </Section>)}
 
       <Section title={t('home.aiPreview')} badge>
         <Card className="grid items-center gap-6 md:grid-cols-2">

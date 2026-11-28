@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -76,6 +76,21 @@ def forecast(db: Db, country: Country, commodity: Crop, state: Place = None, dis
 
 
 SIGNAL_MAX_AGE_DAYS = 7
+_summary_cache: dict[str, tuple[datetime, dict]] = {}
+SUMMARY_TTL = timedelta(minutes=10)
+
+
+@router.get("/summary")
+def summary(db: Db, country: Country) -> dict:
+    """What is stored for a country: real counts only, cached for a few minutes (counting millions of rows is not instant)."""
+    hit = _summary_cache.get(country)
+    if hit and utcnow() - hit[0] < SUMMARY_TTL:
+        return hit[1]
+    n, products, markets, newest = db.execute(select(func.count(), func.count(func.distinct(P.commodity)), func.count(func.distinct(P.market)),
+                                                      func.max(P.obs_date)).where(P.country == country)).one()
+    out = {"reports": n, "products": products, "markets": markets, "newest": newest.isoformat() if newest else None}
+    _summary_cache[country] = (utcnow(), out)
+    return out
 
 
 @router.get("/signal")

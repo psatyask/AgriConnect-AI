@@ -523,3 +523,25 @@ def test_signals_list_only_passing_products_with_fresh_reads(client):
         db.get(SignalEvidence, "tomato").passes = False
         db.commit()
     assert client.get("/api/prices/signals?country=US").json()["items"] == []
+
+
+def test_summary_counts_what_is_stored(client):
+    from app.price_api import _summary_cache
+    _summary_cache.clear()
+    assert client.get("/api/prices/summary?country=US").json() == {"reports": 0, "products": 0, "markets": 0, "newest": None}
+    _summary_cache.clear()
+
+
+def test_summary_with_data(client):
+    from datetime import date
+    from app.db import SessionLocal
+    from app.models import PriceObservation
+    from app.price_api import _summary_cache
+    _summary_cache.clear()
+    with SessionLocal() as db:
+        for m, c in (("Chicago", "tomato"), ("Boston", "tomato"), ("Boston", "onion")):
+            db.add(PriceObservation(country="US", source="ams", state="X", district="", market=m, commodity_raw=c, commodity=c, variety="", grade="",
+                                    obs_date=date(2026, 11, 20), min_price=1, max_price=2, modal_price=None, unit="25 lb", currency="USD", period="daily"))
+        db.commit()
+    assert client.get("/api/prices/summary?country=US").json() == {"reports": 3, "products": 2, "markets": 2, "newest": "2026-11-20"}
+    _summary_cache.clear()

@@ -71,3 +71,8 @@ export interface SignalOverview { items: { commodity: string; auc: number; auc_l
 
 export const useSignalOverview = (country: string) =>
   useQuery({ queryKey: [country, 'price-signals'], retry: false, queryFn: () => api<SignalOverview>(`/api/prices/signals?country=${country}`) })
+
+export interface PriceSummary { reports: number; products: number; markets: number; newest: string | null }
+
+export const usePriceSummary = (country: string) =>
+  useQuery({ queryKey: [country, 'price-summary'], retry: false, staleTime: 5 * 60_000, queryFn: () => api<PriceSummary>(`/api/prices/summary?country=${country}`) })

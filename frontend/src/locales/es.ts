@@ -126,6 +126,21 @@ const es: Messages = {
     oilseeds: 'Oleaginosas',
   },
   home: {
+    live: {
+      reports: "informes de precios guardados",
+      products: "productos con precios",
+      markets: "mercados",
+      newest: "informe más reciente",
+    },
+    leans: {
+      title: "Hacia dónde se inclinan los precios hoy",
+      sub: "Si un precio se mueve un 2 % o más la próxima semana, estos productos muestran la inclinación más clara. Solo se listan productos con precisión pasada comprobada.",
+      all: "Ver todos los productos",
+    },
+    liveCta: {
+      title: "Precios en vivo",
+      body: "Consulta precios reales de los mercados terminales del USDA por cultivo, mercado y envase, con historial y señal de dirección.",
+    },
     search: 'Buscar',
     cropLabel: 'Cultivo',
     locationLabel: 'Ubicación',
