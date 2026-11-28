@@ -12,6 +12,7 @@ import PriceChart from '../components/PriceChart'
 import CropOptions from '../components/CropOptions'
 import PriceLedger, { groupRows, type Line, type LedgerRow } from '../components/PriceLedger'
 import { kgPerPackage } from '../utils/units'
+import { AccuracyMeter, LeanBar, ProbGauge } from '../components/Lean'
 import CropIcon, { cropBg } from '../components/art/CropIcon'
 import { Card, DemoBadge, EmptyRegion } from '../components/ui'
 
@@ -169,6 +170,14 @@ export function Intelligence() {
             {checkedAt && <span>{t('prices.checkedAt', { when: checkedAt.toLocaleString(language.code, { dateStyle: 'medium', timeStyle: 'short' }) })}</span>}
           </p>)}
       </div>
+      {hasLive && all.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-4 rounded-2xl border p-4" style={{ background: 'var(--card)', borderColor: 'var(--border)' }} data-testid="snapshot">
+          <span className="flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: cropBg(scope.commodity) }}><CropIcon id={scope.commodity} size={48} /></span>
+          <div className="min-w-40"><p className="font-display text-2xl font-extrabold">{t(region.commodities.find((c) => c.id === scope.commodity)?.nameKey ?? 'home.cropLabel')}</p>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('prices.snapshot.where', { scope: scope.market || scope.state || region.code })}</p></div>
+          {([[total, t('prices.snapshot.lines')], [new Set(all.map((r) => r.market)).size, t('prices.snapshot.markets')], [new Set(all.map((r) => r.unit)).size, t('prices.snapshot.packages')]] as const).map(([n, label]) => (
+            <div key={label} className="rounded-xl px-4 py-2" style={{ background: 'var(--bg)' }}><p className="font-display text-xl font-extrabold tabular-nums">{n}</p><p className="text-xs" style={{ color: 'var(--muted)' }}>{label}</p></div>))}
+        </div>)}
       {stale && <p role="status" className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900">{t('prices.stale')}</p>}
       <Card className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]">
         <label className="flex flex-col gap-1 text-xs font-semibold">{t('home.cropLabel')}
@@ -220,11 +229,14 @@ export function Intelligence() {
               {sig?.status === 'ok' && sig.p_up != null && sig.evidence && (
                 <div className="mt-3 rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--border)' }} data-testid="signal">
                   <b>{t('prices.signal.title')}</b>
-                  <p className="font-semibold">{sig.p_up >= 0.6 ? t('prices.signal.up', { pct: Math.round(sig.p_up * 100) })
+                  <p className="mt-1 font-semibold">{sig.p_up >= 0.6 ? t('prices.signal.up', { pct: Math.round(sig.p_up * 100) })
                     : sig.p_up <= 0.4 ? t('prices.signal.down', { pct: Math.round((1 - sig.p_up) * 100) }) : t('prices.signal.flat')}</p>
+                  <ProbGauge pUp={sig.p_up} />
                   {sig.other_markets_change != null && (
-                    <p className="text-xs tabular-nums" style={{ color: 'var(--muted)' }}>{t('prices.signal.others', { change: `${sig.other_markets_change >= 0 ? '+' : ''}${((Math.exp(sig.other_markets_change) - 1) * 100).toFixed(1)}%`, date: sig.as_of })}</p>)}
-                  <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('prices.signal.note', { auc: Math.round(sig.evidence.auc * 100), n: sig.evidence.tests })}</p>
+                    <p className="mt-3 inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold tabular-nums" style={{ borderColor: 'var(--border)', color: sig.other_markets_change >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                      {sig.other_markets_change >= 0 ? '▲' : '▼'} {t('prices.signal.others', { change: `${sig.other_markets_change >= 0 ? '+' : ''}${((Math.exp(sig.other_markets_change) - 1) * 100).toFixed(1)}%`, date: sig.as_of })}</p>)}
+                  <div className="mt-3 max-w-xs"><AccuracyMeter auc={sig.evidence.auc} /></div>
+                  <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t('prices.signal.note', { auc: Math.round(sig.evidence.auc * 100), n: sig.evidence.tests })}</p>
                 </div>)}
               {history.data && <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t(first.period === 'monthly' ? 'prices.historyHintMonthly' : history.data?.basis === 'midpoint' ? 'prices.historyHintMid' : 'prices.historyHint', { unit: unitLabel(chartUnit || (history.data?.unit ?? first.unit)) })}</p>}
             </Card>
@@ -267,30 +279,60 @@ export function Forecasting() {
   const { t } = useTranslation()
   const { region } = useMoney()
   const ov = useSignalOverview(region.code)
-  const items = ov.data?.items ?? []
+  const [sort, setSort] = useState<'auc' | 'up' | 'down' | 'name'>('auc')
   const name = (id: string) => t(region.commodities.find((c) => c.id === id)?.nameKey ?? 'home.cropLabel')
+  const items = [...(ov.data?.items ?? [])].sort((a, b) =>
+    sort === 'up' ? b.up / (b.up + b.down + b.even) - a.up / (a.up + a.down + a.even)
+    : sort === 'down' ? b.down / (b.up + b.down + b.even) - a.down / (a.up + a.down + a.even)
+    : sort === 'name' ? name(a.commodity).localeCompare(name(b.commodity)) : b.auc - a.auc)
+  const sum = items.reduce((s, i) => ({ up: s.up + i.up, down: s.down + i.down, even: s.even + i.even }), { up: 0, down: 0, even: 0 })
+  const newest = items.reduce((m, i) => (i.as_of > m ? i.as_of : m), '')
+  const tile = (label: string, value: string | number, color?: string) => (
+    <div className="rounded-xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
+      <p className="font-display text-3xl font-extrabold tabular-nums" style={{ color }}>{value}</p>
+      <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>{label}</p></div>)
   return (
-    <Shell title={t("nav.forecasting")} live>
-      {(
-        <div className="space-y-4" data-testid="signals-page">
-          <Card className="space-y-2 text-sm">
-            <p>{t('forecastPage.intro')}</p>
-            <p style={{ color: 'var(--muted)' }}>{t('forecastPage.how')}</p>
-          </Card>
-          <Card>
-            {ov.isLoading ? <p className="text-sm" style={{ color: 'var(--muted)' }}>{t('prices.loading')}</p>
-              : items.length === 0 ? <p className="text-sm" style={{ color: 'var(--muted)' }}>{t('forecastPage.empty')}</p>
-              : (<table className="w-full text-sm">
-                  <thead><tr className="text-left" style={{ color: 'var(--muted)' }}><th className="py-2">{t('home.cropLabel')}</th><th>{t('forecastPage.up')}</th><th>{t('forecastPage.down')}</th><th>{t('forecastPage.evidence')}</th></tr></thead>
-                  <tbody>{items.map((i) => (
-                    <tr key={i.commodity} className="border-t" style={{ borderColor: 'var(--border)' }}>
-                      <td className="py-2"><Link className="font-semibold underline" to={`/intelligence?crop=${i.commodity}`}>{name(i.commodity)}</Link></td>
-                      <td className="tabular-nums">{i.up}</td><td className="tabular-nums">{i.down}</td>
-                      <td className="tabular-nums">{t('forecastPage.auc', { auc: Math.round(i.auc * 100), n: i.tests })}</td></tr>))}</tbody>
-                </table>)}
-            {items.length > 0 && <p className="mt-3 text-xs" style={{ color: 'var(--muted)' }}>{t('forecastPage.note', { date: ov.data?.evaluated_through })}</p>}
-          </Card>
-        </div>)}
+    <Shell title={t('nav.forecasting')} live>
+      <div className="space-y-5" data-testid="signals-page">
+        <Card className="space-y-2 text-sm">
+          <p>{t('forecastPage.intro')}</p>
+          <p style={{ color: 'var(--muted)' }}>{t('forecastPage.how')}</p>
+        </Card>
+        {ov.isLoading ? <p className="text-sm" style={{ color: 'var(--muted)' }}>{t('prices.loading')}</p>
+          : items.length === 0 ? <Card><p className="text-sm" style={{ color: 'var(--muted)' }}>{t('forecastPage.empty')}</p></Card>
+          : (<>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {tile(t('forecastPage.tProducts'), items.length)}
+              {tile(t('forecastPage.tUp'), sum.up, 'var(--up)')}
+              {tile(t('forecastPage.tDown'), sum.down, 'var(--down)')}
+              {tile(t('forecastPage.tNewest'), newest)}
+            </div>
+            <Card>
+              <p className="mb-2 text-sm font-semibold">{t('forecastPage.overall')}</p>
+              <LeanBar {...sum} />
+            </Card>
+            <label className="flex items-center gap-2 text-xs font-semibold">{t('forecastPage.sort')}
+              <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="rounded-lg border px-2 py-1.5 text-sm" style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
+                <option value="auc">{t('forecastPage.sAcc')}</option><option value="up">{t('forecastPage.sUp')}</option>
+                <option value="down">{t('forecastPage.sDown')}</option><option value="name">{t('forecastPage.sName')}</option></select></label>
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {items.map((i) => (
+                <li key={i.commodity}>
+                  <Link to={`/intelligence?crop=${i.commodity}`} className="block rounded-2xl border p-4 shadow-sm transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                    style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
+                    <div className="mb-3 flex items-center gap-3">
+                      <span className="flex h-12 w-12 items-center justify-center rounded-xl" style={{ background: cropBg(i.commodity) }}><CropIcon id={i.commodity} size={36} /></span>
+                      <span className="font-display text-lg font-extrabold">{name(i.commodity)}</span>
+                    </div>
+                    <LeanBar up={i.up} down={i.down} even={i.even} />
+                    <div className="mt-3"><AccuracyMeter auc={i.auc} /></div>
+                    <p className="mt-1 text-[11px]" style={{ color: 'var(--muted)' }}>{t('forecastPage.auc', { auc: Math.round(i.auc * 100), n: i.tests })}</p>
+                  </Link>
+                </li>))}
+            </ul>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('forecastPage.note', { date: ov.data?.evaluated_through })}</p>
+          </>)}
+      </div>
     </Shell>
   )
 }

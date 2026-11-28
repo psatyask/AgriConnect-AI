@@ -282,7 +282,7 @@ test('the forecasting page lists proven products from the server and shows no de
   localStorage.setItem('agri.country', 'US')
   render(<AppProviders><MemoryRouter><Forecasting /></MemoryRouter></AppProviders>)
   const page = await screen.findByTestId('signals-page')
-  expect(await within(page).findByRole('link', { name: 'Tomato' })).toHaveAttribute('href', '/intelligence?crop=tomato')
+  expect(await within(page).findByRole('link', { name: /Tomato/ })).toHaveAttribute('href', '/intelligence?crop=tomato')
   expect(within(page).getByText(/75% \(900 moves\)/)).toBeInTheDocument()
   expect(screen.queryByText(/Demo values only/)).not.toBeInTheDocument()
 })
