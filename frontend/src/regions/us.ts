@@ -93,6 +93,11 @@ export const US: RegionPack = {
     { id: 'dill', nameKey: 'commodities.dill', categoryKey: 'categories.vegetables', priceUnit: 'lb' },
     { id: 'pumpkin', nameKey: 'commodities.pumpkin', categoryKey: 'categories.vegetables', priceUnit: 'lb' },
   ],
-  heroImage: { src: '/images/hero/hero-us.jpg', altKey: 'hero.imageAlt.US', scene: 'prairie' },
+  heroImages: [
+    { src: '/images/hero/hero-us.webp', altKey: 'hero.alts.usFarmer', focus: '70% 50%' },
+    { src: '/images/hero/us-farmer-hero-1.webp', altKey: 'hero.alts.usField', focus: '55% 50%' },
+    { src: '/images/hero/hero-section.webp', altKey: 'hero.alts.sapling', focus: '45% 50%' },
+  ],
+  heroScene: 'prairie',
   demoOnly: true,
 }

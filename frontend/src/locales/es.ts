@@ -32,6 +32,16 @@ const es: Messages = {
     explore: 'Explorar el mercado',
     ask: 'Preguntar al asistente de IA',
     imageSlot: 'Espacio para foto con licencia',
+    carousel: "Imágenes del campo",
+    showPicture: "Mostrar imagen {{n}} de {{total}}",
+    alts: {
+      inGroup: "Ilustración: agricultores en un campo miran datos de cultivos en una tableta al amanecer",
+      inPhone: "Ilustración: un agricultor consulta información de cultivos en su teléfono en un campo verde",
+      inField: "Ilustración: un agricultor sonríe en un campo al amanecer, con un tractor y un dron detrás",
+      sapling: "Ilustración: unas manos sostienen una planta joven en la tierra, con datos agrícolas en una pantalla detrás",
+      usFarmer: "Ilustración: un agricultor con sombrero en un campo al amanecer, con un tractor y silos detrás",
+      usField: "Ilustración: un agricultor camina entre hileras de cultivos con sensores de clima y un dron arriba",
+    },
     imageAlt: {
       IN: 'Campos y agricultores de la India (marcador de posición)',
       US: 'Paisaje agrícola de Estados Unidos (marcador de posición)',
