@@ -287,6 +287,7 @@ export function Forecasting() {
     : sort === 'name' ? name(a.commodity).localeCompare(name(b.commodity)) : b.auc - a.auc)
   const sum = items.reduce((s, i) => ({ up: s.up + i.up, down: s.down + i.down, even: s.even + i.even }), { up: 0, down: 0, even: 0 })
   const newest = items.reduce((m, i) => (i.as_of > m ? i.as_of : m), '')
+  const verdict = (i: { up: number; down: number; even: number }) => (i.up > 2 * i.down ? 'up' : i.down > 2 * i.up ? 'down' : 'mixed')
   const tile = (label: string, value: string | number, color?: string) => (
     <div className="rounded-xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
       <p className="font-display text-3xl font-extrabold tabular-nums" style={{ color }}>{value}</p>
@@ -315,6 +316,7 @@ export function Forecasting() {
               <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="rounded-lg border px-2 py-1.5 text-sm" style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
                 <option value="auc">{t('forecastPage.sAcc')}</option><option value="up">{t('forecastPage.sUp')}</option>
                 <option value="down">{t('forecastPage.sDown')}</option><option value="name">{t('forecastPage.sName')}</option></select></label>
+            <p className="text-xs" style={{ color: 'var(--muted)' }} data-testid="legend">{t('forecastPage.legend')}</p>
             <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {items.map((i) => (
                 <li key={i.commodity}>
@@ -324,8 +326,12 @@ export function Forecasting() {
                       <span className="flex h-12 w-12 items-center justify-center rounded-xl" style={{ background: cropBg(i.commodity) }}><CropIcon id={i.commodity} size={36} /></span>
                       <span className="font-display text-lg font-extrabold">{name(i.commodity)}</span>
                     </div>
+                    <p className="mb-2 text-sm font-semibold" style={{ color: verdict(i) === 'up' ? 'var(--up)' : verdict(i) === 'down' ? 'var(--down)' : 'var(--muted)' }}>
+                      {verdict(i) === 'up' ? '▲ ' : verdict(i) === 'down' ? '▼ ' : ''}{t(`forecastPage.verdict.${verdict(i)}`)}</p>
                     <LeanBar up={i.up} down={i.down} even={i.even} />
-                    <div className="mt-3"><AccuracyMeter auc={i.auc} /></div>
+                    <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>{t('forecastPage.listings', { up: i.up, down: i.down, n: i.up + i.down + i.even })}</p>
+                    <p className="mb-1 mt-3 text-xs font-semibold">{t('forecastPage.pastAccuracy')}</p>
+                    <AccuracyMeter auc={i.auc} />
                     <p className="mt-1 text-[11px]" style={{ color: 'var(--muted)' }}>{t('forecastPage.auc', { auc: Math.round(i.auc * 100), n: i.tests })}</p>
                   </Link>
                 </li>))}

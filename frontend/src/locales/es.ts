@@ -276,8 +276,6 @@ const es: Messages = {
   },
   forecastPage: {
     tProducts: "Productos con señal comprobada",
-    tUp: "Líneas que apuntan a subir",
-    tDown: "Líneas que apuntan a bajar",
     tNewest: "Informe más reciente usado",
     sort: "Ordenar por",
     sAcc: "Precisión probada",
@@ -293,6 +291,12 @@ const es: Messages = {
     evidence: 'Precisión probada',
     auc: '{{auc}} % ({{n}} movimientos)',
     note: 'Precisión = cuántas veces, en fechas que el modelo no había visto, ordenó las subidas por encima de las bajadas (50 % es adivinar). Probado hasta el {{date}}. Haz clic en un producto para ver un mercado.',
+    listings: "{{down}} de {{n}} anuncios apuntan a bajar, {{up}} a subir",
+    pastAccuracy: "Precisión pasada en este producto",
+    legend: "▲ más probable que suba · ▼ más probable que baje, si el precio se mueve un 2 % o más la próxima semana. Un “anuncio” es un mercado, envase y grado. La barra de precisión es el historial del modelo en fechas pasadas que no había visto.",
+    tUp: "Anuncios que apuntan a subir",
+    tDown: "Anuncios que apuntan a bajar",
+    verdict: { up: "Mayormente hacia subir", down: "Mayormente hacia bajar", mixed: "Mixto, sin inclinación clara" },
   },
   lean: {
     barLabel: "{{up}} líneas apuntan a subir, {{even}} sin inclinación, {{down}} a bajar",

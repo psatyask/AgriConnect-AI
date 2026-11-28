@@ -274,8 +274,6 @@ const en = {
   },
   forecastPage: {
     tProducts: "Products with a proven signal",
-    tUp: "Price lines leaning up",
-    tDown: "Price lines leaning down",
     tNewest: "Newest report used",
     sort: "Sort by",
     sAcc: "Tested accuracy",
@@ -291,6 +289,12 @@ const en = {
     evidence: 'Tested accuracy',
     auc: '{{auc}}% ({{n}} moves)',
     note: 'Accuracy = how often, on dates the model had not seen, it ranked price rises above falls (50% is guessing). Tested through {{date}}. Click a product to see one market.',
+    listings: "{{down}} of {{n}} listings lean down, {{up}} lean up",
+    pastAccuracy: "Past accuracy on this product",
+    legend: "▲ more likely to rise · ▼ more likely to fall, if the price moves 2% or more next week. A “listing” is one market, package and grade. The accuracy bar is the model’s track record on past dates it had not seen.",
+    tUp: "Listings leaning up",
+    tDown: "Listings leaning down",
+    verdict: { up: "Mostly leaning up", down: "Mostly leaning down", mixed: "Mixed, no clear lean" },
   },
   lean: {
     barLabel: "{{up}} price lines lean up, {{even}} no lean, {{down}} lean down",
