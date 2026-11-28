@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -6,7 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .models import PriceObservation as P, utcnow
+from .forecast import evaluate
+from .models import PriceObservation as P, PriceSignal as S, SignalEvidence as E, utcnow
 
 router = APIRouter(prefix="/api/prices")
 Db = Annotated[Session, Depends(get_db)]
@@ -60,6 +61,86 @@ def latest(db: Db, country: Country, commodity: Crop, state: Place = None, distr
 @router.get("/history")
 def history(db: Db, country: Country, commodity: Crop, state: Place = None, district: Place = None, market: Place = None,
             variety: Place = None, unit: Place = None, days: Annotated[int, Query(ge=7, le=730)] = 90) -> dict:
+    return _series(db, country, commodity, state, district, market, variety, unit, days)
+
+
+@router.get("/forecast")
+def forecast(db: Db, country: Country, commodity: Crop, state: Place = None, district: Place = None, market: Place = None,
+             variety: Place = None, unit: Place = None) -> dict:
+    """A 7-day-ahead price, only when it beat "same as the latest report" on past dates (see app/forecast.py)."""
+    series = _series(db, country, commodity, state, district, market, variety, unit, 1100)  # long enough to test last year's pattern
+    if series["needs"]:
+        return {"status": "no_forecast", "reason": f"needs_{series['needs']}", "basis": series["basis"], "unit": series["unit"]}
+    pts = [(date.fromisoformat(p["date"]), p["price"]) for p in series["points"]]
+    return {**evaluate(pts, today=utcnow().date()), "basis": series["basis"], "unit": series["unit"]}
+
+
+SIGNAL_MAX_AGE_DAYS = 7
+_summary_cache: dict[str, tuple[datetime, dict]] = {}
+SUMMARY_TTL = timedelta(minutes=10)
+
+
+@router.get("/summary")
+def summary(db: Db, country: Country) -> dict:
+    """What is stored for a country: real counts only, cached for a few minutes (counting millions of rows is not instant)."""
+    hit = _summary_cache.get(country)
+    if hit and utcnow() - hit[0] < SUMMARY_TTL:
+        return hit[1]
+    n, products, markets, newest = db.execute(select(func.count(), func.count(func.distinct(P.commodity)), func.count(func.distinct(P.market)),
+                                                      func.max(P.obs_date)).where(P.country == country)).one()
+    out = {"reports": n, "products": products, "markets": markets, "newest": newest.isoformat() if newest else None}
+    _summary_cache[country] = (utcnow(), out)
+    return out
+
+
+@router.get("/signal")
+def signal(db: Db, country: Country, commodity: Crop, market: Place = None, variety: Place = None, unit: Place = None) -> dict:
+    """Which way a price is likelier to go IF it moves 2%+ in the next 7 days. Written by the offline job (ml/predict.py), shown only
+    for products whose held-out evidence passed. It says nothing about whether the price will move."""
+    ev = db.get(E, commodity)
+    if ev is None or ev.country != country:
+        return {"status": "none", "reason": "not_evaluated"}
+    if not ev.passes:
+        return {"status": "none", "reason": "no_evidence"}
+    if not market:
+        return {"status": "none", "reason": "needs_market"}
+    q = select(S).where(S.country == country, S.commodity == commodity, S.market == market)
+    if variety:
+        q = q.where(S.variety == variety)
+    if unit:
+        q = q.where(S.unit == unit)
+    rows = db.scalars(q).all()
+    if not rows:
+        return {"status": "none", "reason": "no_read"}
+    as_of = max(r.as_of for r in rows)
+    if (utcnow().date() - as_of).days > SIGNAL_MAX_AGE_DAYS:
+        return {"status": "none", "reason": "stale"}
+    rows = [r for r in rows if r.as_of == as_of]
+    xm = [r.other_markets_change for r in rows if r.other_markets_change is not None]
+    return {"status": "ok", "p_up": round(sum(r.p_up for r in rows) / len(rows), 3), "lines": len(rows), "as_of": as_of.isoformat(),
+            "other_markets_change": round(sum(xm) / len(xm), 4) if xm else None,
+            "evidence": {"auc": round(ev.auc, 3), "auc_low": round(ev.auc_low, 3), "auc_high": round(ev.auc_high, 3),
+                         "tests": ev.tests, "through": ev.evaluated_through.isoformat()}}
+
+
+@router.get("/signals")
+def signals(db: Db, country: Country) -> dict:
+    """Every product whose evidence passed, with how many of its current price lines lean up or down. Newest reads only."""
+    cutoff = utcnow().date() - timedelta(days=SIGNAL_MAX_AGE_DAYS)
+    evidence = {e.commodity: e for e in db.scalars(select(E).where(E.country == country, E.passes.is_(True)))}
+    tally: dict[str, dict] = {}
+    for r in db.scalars(select(S).where(S.country == country, S.as_of >= cutoff)):
+        t = tally.setdefault(r.commodity, {"up": 0, "down": 0, "even": 0, "as_of": r.as_of})
+        t["up" if r.p_up >= 0.6 else "down" if r.p_up <= 0.4 else "even"] += 1
+        t["as_of"] = max(t["as_of"], r.as_of)
+    items = [{"commodity": c, "auc": round(e.auc, 3), "auc_low": round(e.auc_low, 3), "tests": e.tests, **{k: v for k, v in tally[c].items() if k != "as_of"},
+              "as_of": tally[c]["as_of"].isoformat()} for c, e in evidence.items() if c in tally]
+    items.sort(key=lambda i: -i["auc"])
+    through = max((e.evaluated_through for e in evidence.values()), default=None)
+    return {"items": items, "evaluated_through": through.isoformat() if through else None}
+
+
+def _series(db, country, commodity, state, district, market, variety, unit, days) -> dict:
     """Daily average price in scope; days with no report are simply absent (no interpolation).
 
     Sources with a modal price are charted by modal. Range-only sources (USDA terminal markets) are charted by the midpoint

@@ -65,3 +65,68 @@ While the app is running (`python app.py`), it re-fetches each price source that
 - Pages: Home, Marketplace, Market Intelligence, Price Forecasting, AI Assistant, Knowledge Explorer, demo login, farmer dashboard
 
 See `docs/` for architecture, plan and status.
+
+## Price forecasting
+
+Market Intelligence shows a 7-day-ahead price for a single price line (one market, product, package and variety) **only when
+it has beaten a plain baseline on past dates**. Otherwise it says why there is no forecast and shows no number.
+
+- **Baseline:** "the next price equals the latest report". Everything else must beat it.
+- **Candidates:** 5-report average, exponential smoothing, damped recent trend and, once a year or more of earlier history is
+  stored, last year's price for the same week and today's price plus last year's change over that week
+  (`backend/app/forecast.py`, no ML dependencies). Load older data with
+  `python -m app.prices.ingest ams-range 2024-11-27 2025-11-26` (any window, run it once per year).
+- **Test:** rolling origin, using only data that existed at each past date. Dates are split in time order 50% / 25% / 25%:
+  the first part picks the best candidate, the second is the gate (at least 15% lower average error than the baseline), the
+  last is a holdout (at least 10%), and the method must be closer than the baseline on 65% of those tests. The skill shown to
+  users comes from the holdout. The bars were set by simulation: an earlier, weaker gate (5% / 0%) let 6-10% of pure random
+  walks through, which is no better than luck; this one lets through about 1-3%, and a test enforces it.
+- **Range:** the 10th-90th percentile of that candidate's own past errors, widened if needed to contain the forecast.
+- **Not forecast:** too little history, stale data (latest report over 7 days old), monthly sources, or no method beating the baseline.
+
+Evidence across everything stored (these are the numbers to quote, from real stored prices):
+
+```
+cd backend
+python -m app.prices.backtest        # lines tested, share that pass vs the by-luck rate, median skill (all lines, winners and losers)
+```
+
+API: `GET /api/prices/forecast?country=US&commodity=tomato&unit=...&variety=...` (same series rules as `/api/prices/history`).
+
+## Gradient-boosting forecast experiment (offline)
+
+`backend/ml/` tests LightGBM, XGBoost and Ridge against "same price as today" on the stored prices. It is separate from the web
+app (extra libraries in `backend/requirements-ml.txt`), and nothing is shown to users from it until a model proves itself.
+
+```
+cd backend
+pip install -r requirements-ml.txt
+python -m ml.evaluate --models lgbm --windows 2 --max-train-rows 300000   # quick first run
+python -m ml.evaluate                                                     # all models, 4 test windows
+python -m ml.evaluate --null                                              # target shuffled inside each line: must show no skill
+python -m ml.evaluate --ablate cross                                      # without the other-markets features
+python -m ml.evaluate --task rmse                                         # squared error (rewards getting large moves right)
+python -m ml.evaluate --task move                                         # will the price move 2%+ in 7 days? AUC vs 'it moved last week'
+python -m ml.evaluate --task direction                                    # among lines that moved 2%+, up or down? AUC vs momentum / reversion
+python -m ml.evaluate --ablate flat|ids|cross                             # drop a feature group (reporting-habit and identity checks)
+```
+
+Target: log(price in 7 days / price today). Features (only what is known on that date): price changes over 1/3/7/14/28 days,
+volatility, share of unchanged days, level vs the 90-day mean and vs a year ago, calendar, and what the same product did in
+other markets over the last 1 and 7 days. Windows run in time order with a 7-day gap before validation and before test;
+hyper-parameters come from a small fixed grid on validation dates only; the confidence interval resamples whole weeks.
+Tests (`tests/test_ml_*.py`) check that features cannot see the future, that a planted pattern is found, and that random walks
+and shuffled targets show no skill.
+
+## Direction signal (offline model, shown only where it is proven)
+
+The chart card can show a lean: *if this price moves 2% or more in the next 7 days, is it more likely to go up or down?* It does not say whether the price will move or by how much.
+
+How it works, and why you can trust what you see:
+
+- An offline job (`python -m ml.predict`, needs `pip install -r backend/requirements-ml.txt`) trains LightGBM on stored USDA prices, scores it **per product** on dates it never saw, and writes two tables: `signal_evidence` and `price_signals`. The web app has no ML libraries; it only reads those tables.
+- A product gets a signal only if its evidence passes the gate: at least 300 moves tested, the low end of the 95% interval (resampling whole weeks) at AUC 0.60 or more, and the worst of the 4 test windows at 0.55 or more. A shuffled-outcome run scores 0.575, so the gate sits above what line persistence alone gets. Products that do not pass show nothing.
+- The model mostly uses what the same product did in other markets. Without those features the same test scores 0.58 and its probabilities are badly calibrated.
+- The card shows the date of the newest report used and goes quiet if the read is more than 7 days old. Re-run the job after loading new prices.
+
+Endpoint: `GET /api/prices/signal?country=US&commodity=tomato&market=...` returns `status: none` with a reason (`not_evaluated`, `no_evidence`, `needs_market`, `no_read`, `stale`) instead of a guess.

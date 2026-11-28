@@ -4,8 +4,10 @@
     python -m app.prices.ingest run          # fetch all mapped crops and upsert
     python -m app.prices.ingest probe-nass   # US: check the real USDA response format
     python -m app.prices.ingest nass         # US: load monthly state prices received (needs NASS_API_KEY)
+    python -m app.prices.ingest stats          # what is stored: rows, date range, markets, products per source
     python -m app.prices.ingest ams [DAYS]   # US terminal market vegetable prices, last DAYS days (default 14); needs MARS_API_KEY
     python -m app.prices.ingest refresh      # refresh every configured source now (the running app also does this itself, see PRICE_REFRESH_HOURS)
+    python -m app.prices.ingest ams-range 2026-07-22 2026-07-29 [TITLE_TEXT]   # same, for an exact window, optionally only reports whose title contains the text
     python -m app.prices.ingest probe-ams [KEYWORD|REPORT_ID [BEGIN [END]]]   # US daily markets: list reports, or show one report's raw shape
     python -m app.prices.ingest csv FILE [--since 2019-01-01]   # load a downloaded Agmarknet CSV (data.gov.in or CEDA), no API needed
 """
@@ -16,6 +18,9 @@ from datetime import date, timedelta
 from pathlib import Path
 from collections import Counter
 
+from dataclasses import replace
+
+from sqlalchemy import and_, delete
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -27,6 +32,29 @@ from . import agmarknet, ams, nass
 from .base import PriceRecord
 
 KEYS = ["source", "state", "district", "market", "commodity_raw", "variety", "grade", "obs_date", "unit"]
+
+
+def split_lookalikes(batch: list[PriceRecord]) -> tuple[list[PriceRecord], list[tuple]]:
+    """Keep every real line. USDA sometimes lists two lines with identical descriptions but different prices (the order
+    swaps from day to day), and the database key cannot tell them apart. Such lines are kept side by side, numbered by price
+    ("price line 1 of 2" is the lower one). Rows identical in price too are plain duplicates and collapse into one.
+
+    Returns the records to store and the original keys of the split groups (their old single row must be removed).
+    """
+    groups: dict[tuple, dict[tuple, PriceRecord]] = {}
+    for r in batch:
+        groups.setdefault(tuple(getattr(r, k) for k in KEYS), {})[(r.min_price, r.max_price)] = r  # same price: later wins
+    out, split = [], []
+    for key, by_price in groups.items():
+        if len(by_price) == 1:
+            out.extend(by_price.values())
+            continue
+        split.append(key)
+        ordered = sorted(by_price.values(), key=lambda r: (r.min_price or 0, r.max_price or 0))
+        for i, r in enumerate(ordered, 1):
+            tag = f"price line {i} of {len(ordered)}"
+            out.append(replace(r, grade=f"{r.grade[:170]} · {tag}" if r.grade else tag))
+    return out, split
 
 
 def upsert(db: Session, records: list[PriceRecord]) -> int:
@@ -104,27 +132,49 @@ def probe_ams(arg: str = "") -> None:
     print(f"{len(found)} reports match" + (" (showing 150; add another word to narrow)" if len(found) > 150 else ""))
 
 
-def run_ams(days: int | None = None) -> None:
+def stats() -> None:
+    """What is stored, straight from the database: the numbers to quote about the data."""
+    from sqlalchemy import func, select
+    with SessionLocal() as db:
+        rows = db.execute(select(PriceObservation.country, PriceObservation.source, func.count(), func.min(PriceObservation.obs_date),
+                                 func.max(PriceObservation.obs_date), func.count(func.distinct(PriceObservation.market)),
+                                 func.count(func.distinct(PriceObservation.commodity)))
+                          .group_by(PriceObservation.country, PriceObservation.source).order_by(PriceObservation.country, PriceObservation.source)).all()
+    if not rows:
+        print("No prices stored yet.")
+    for country, source, n, first, last, markets, crops in rows:
+        print(f"{country} {source}: {n:,} price observations, {first} to {last} ({(last - first).days + 1} days), {markets} markets, {crops} products")
+    if rows:
+        print(f"Total: {sum(r[2] for r in rows):,} price observations")
+
+
+def run_ams(days: int | None = None, begin: date | None = None, end: date | None = None, only: str = "") -> None:
     """US terminal market prices (vegetables, fruit) for the last N days (default 14). Needs MARS_API_KEY."""
-    days = days if days is not None else int(sys.argv[2]) if len(sys.argv) > 2 else 14
-    end, begin = date.today(), date.today() - timedelta(days=days)
-    reports = ams.terminal_reports()
+    if begin is None:
+        days = days if days is not None else int(sys.argv[2]) if len(sys.argv) > 2 else 14
+    end = end or date.today()
+    begin = begin or end - timedelta(days=days)
+    reports = [r for r in ams.terminal_reports() if only.lower() in str(r.get("report_title", "")).lower()]
     print(f"{len(reports)} terminal market reports found; fetching {begin} to {end}")
     stored = collisions = 0
     unusable: Counter = Counter()
     conflicts: list[tuple[PriceRecord, PriceRecord]] = []
     differ: Counter = Counter()
+    only_price = 0
     example: dict[str, tuple[str, str]] = {}
     unmapped: Counter = Counter()
     failed: list[str] = []
+    gaps: list[tuple[str, str, str, str]] = []
     with SessionLocal() as db:
         for rep in reports:
             title = str(rep.get("report_title", rep.get("slug_id")))
+            report_gaps: list[tuple[str, str, str]] = []
             try:
-                raws = ams.fetch_report_rows(str(rep["slug_id"]), begin.strftime("%m/%d/%Y"), end.strftime("%m/%d/%Y"))
+                raws = ams.fetch_report_rows(str(rep["slug_id"]), begin.strftime("%m/%d/%Y"), end.strftime("%m/%d/%Y"), report_gaps)
             except RuntimeError as exc:
                 failed.append(f"{title}: {exc}")
                 continue
+            gaps += [(title, *g) for g in report_gaps]
             batch: list[PriceRecord] = []
             raw_of: dict[int, dict] = {}
             for raw in raws:
@@ -144,26 +194,39 @@ def run_ams(days: int | None = None) -> None:
                     if (seen[k].min_price, seen[k].max_price) != (r.min_price, r.max_price):
                         conflicts.append((seen[k], r))
                         a, b = raw_of[id(seen[k])], raw_of[id(r)]
+                        fields = [f for f in ams.differing_fields(a, b) if f not in ("low_price", "high_price", "mostly_low_price", "mostly_high_price")]
+                        if not fields:
+                            only_price += 1
                         for f in ams.differing_fields(a, b):
-                            if f not in ("low_price", "high_price", "mostly_low_price", "mostly_high_price", "report_date", "published_date"):
+                            if f not in ("low_price", "high_price", "mostly_low_price", "mostly_high_price"):
                                 differ[f] += 1
                                 example.setdefault(f, (str(a.get(f)), str(b.get(f))))
                 seen[k] = r
+            batch, split = split_lookalikes(batch)
+            for key in split:  # an earlier import kept only one of these lines under the plain description: drop it
+                db.execute(delete(PriceObservation).where(and_(*[getattr(PriceObservation, f) == v for f, v in zip(KEYS, key)])))
             stored += upsert(db, batch)
     print(f"Done. {stored} price rows stored, {sum(unusable.values())} unusable rows, "
-          f"{sum(unmapped.values())} rows for products the app does not map, {collisions} rows with the same market, product, package, description and day as another (kept the last).")
+          f"{sum(unmapped.values())} rows for products the app does not map, {collisions} rows repeated another row's market, product, package, description and day.")
     if unusable:
         print("Unusable rows by reason:", ", ".join(f"{n} ({c})" for n, c in unusable.most_common()))
     if collisions:
-        print(f"Of the repeated rows, {len(conflicts)} had DIFFERENT prices (one of each pair was overwritten).")
+        print(f"Of those, {len(conflicts)} had DIFFERENT prices: both lines are kept, numbered by price (\"price line 1 of 2\"); identical rows count once.")
         for a, b in conflicts[:3]:
             print(f"  e.g. {a.market} | {a.commodity_raw} | {a.variety} | {a.grade} | {a.unit} | {a.obs_date}: {a.min_price}-{a.max_price} vs {b.min_price}-{b.max_price}")
+    if conflicts:
+        print(f"{only_price} of those pairs differ ONLY in price (every other field USDA gives is identical, so they are two real lines).")
     if differ:
         print("Fields that differ inside those pairs (field: pairs, example):")
         for f, n in differ.most_common(12):
             print(f"  {f}: {n}, e.g. {example[f][0]!r} vs {example[f][1]!r}")
     if unmapped:
         print(f"Unmapped products ({len(unmapped)}), most common first:", ", ".join(f"{n} ({c})" for n, c in unmapped.most_common(60)))
+    if gaps:
+        print(f"INCOMPLETE: USDA kept returning errors for {len(gaps)} window(s), so these days are missing (everything else was stored):")
+        for title, a, b, why in gaps[:10]:
+            m1, d1, y1 = a.split("/"); m2, d2, y2 = b.split("/")
+            print(f"  {title}: {a} to {b} ({why}). Re-run later with: python -m app.prices.ingest ams-range {y1}-{m1}-{d1} {y2}-{m2}-{d2}")
     for f in failed[:10]:
         print("FAILED:", f)
     if stored == 0:
@@ -235,12 +298,16 @@ def migrate() -> None:
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
-    if cmd in ("run", "nass", "csv", "ams", "refresh"):
+    if cmd in ("run", "nass", "csv", "ams", "ams-range", "refresh"):
         migrate()
     if cmd == "csv" and len(sys.argv) in (3, 5) and (len(sys.argv) == 3 or sys.argv[3] == "--since"):
         load_csv(sys.argv[2], date.fromisoformat(sys.argv[4]) if len(sys.argv) == 5 else None)
+    elif cmd == "stats":
+        stats()
     elif cmd == "ams":
         run_ams()
+    elif cmd == "ams-range" and len(sys.argv) in (4, 5):  # a narrow window, e.g. to inspect one day's duplicates quickly
+        run_ams(begin=date.fromisoformat(sys.argv[2]), end=date.fromisoformat(sys.argv[3]), only=sys.argv[4] if len(sys.argv) == 5 else "")
     elif cmd == "refresh":
         from . import refresh
         for src, msg in refresh.refresh_once(force=True).items():

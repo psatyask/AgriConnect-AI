@@ -22,6 +22,8 @@
   --muted: #4b5563;
   --link: #15803d;
   --warn: #b45309;
+  --up: #0e7490;
+  --down: #c2410c;
 }
 
 :root[data-theme="dark"] {
@@ -32,6 +34,8 @@
   --muted: #b5c2b0;
   --link: #86efac;
   --warn: #fbbf24;
+  --up: #67e8f9;
+  --down: #fdba74;
 }
 
 body {

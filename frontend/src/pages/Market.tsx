@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import ListingCard from '../components/ListingCard'
 import { useListings } from '../api/listings'
-import { useLatestPrices, useLocations, usePriceHistory, type Scope } from '../api/prices'
+import { useLatestPrices, useLocations, useDirectionSignal, usePriceForecast, useSignalOverview, usePriceHistory, type Scope } from '../api/prices'
 import { useRegion } from '../context/RegionContext'
 import { useLanguage } from '../context/LanguageContext'
 import { getDemo } from '../data/demo'
@@ -11,13 +12,14 @@ import PriceChart from '../components/PriceChart'
 import CropOptions from '../components/CropOptions'
 import PriceLedger, { groupRows, type Line, type LedgerRow } from '../components/PriceLedger'
 import { kgPerPackage } from '../utils/units'
+import { AccuracyMeter, LeanBar, ProbGauge } from '../components/Lean'
 import CropIcon, { cropBg } from '../components/art/CropIcon'
 import { Card, DemoBadge, EmptyRegion } from '../components/ui'
 
-function Shell({ title, children }: { title: string; children: React.ReactNode }) {
+function Shell({ title, children, live }: { title: string; children: React.ReactNode; live?: boolean }) {
   return (
     <main className="mx-auto max-w-6xl px-4 py-8">
-      <div className="mb-5 flex items-center gap-3"><h1 className="font-display text-3xl font-extrabold">{title}</h1><DemoBadge /></div>
+      <div className="mb-5 flex items-center gap-3"><h1 className="font-display text-3xl font-extrabold">{title}</h1>{!live && <DemoBadge />}</div>
       {children}
     </main>
   )
@@ -85,7 +87,9 @@ export function Intelligence() {
   const { language } = useLanguage()
   const { region, money } = useMoney()
   const demo = getDemo(region.code)
-  const [scope, setScope] = useState<Scope>({ commodity: region.commodities[0].id, state: '', district: '', market: '' })
+  const [params] = useSearchParams()
+  const wanted = params.get('crop')
+  const [scope, setScope] = useState<Scope>({ commodity: region.commodities.some((c) => c.id === wanted) ? wanted! : region.commodities[0].id, state: '', district: '', market: '' })
   const locations = useLocations(region.code, scope.commodity)
   const latest = useLatestPrices(region.code, scope)
   const [vf, setVf] = useState(''), [line, setLine] = useState<Line | null>(null), [mode, setMode] = useState<'auto' | 'reported' | 'base'>('auto')
@@ -122,6 +126,9 @@ export function Intelligence() {
   const topSrc = top ? { variety: top.variety, unit: top.srcUnit ?? top.unit } : null
   const chosen: Line | null = line && rows.some((r) => r.variety === line.variety && r.unit === line.unit) ? line : topSrc
   const history = usePriceHistory(region.code, scope, chosen?.variety ?? '', chosen?.unit ?? '')
+  const dailyOnly = (rows[0] ?? all[0])?.period !== 'monthly'
+  const fc = usePriceForecast(region.code, scope, chosen?.variety ?? '', chosen?.unit ?? '', !!chosen && !!history.data && !history.data.needs && dailyOnly)
+  const sig = useDirectionSignal(region.code, scope, chosen?.variety ?? '', chosen?.unit ?? '', !!chosen && dailyOnly).data
   const showRange = rows.some((r) => r.min != null || r.max != null)
   const showModal = rows.some((r) => r.modal != null)  // USDA terminal markets report a low-high range, never a modal price
   const showMarket = !scope.market  // name the market on each line unless one market is already chosen
@@ -138,6 +145,12 @@ export function Intelligence() {
   const chartF = chartKg != null ? (baseUnit.toKg as number) / chartKg : 1  // the chart is converted the same way as the list
   const chartUnit = chartKg != null ? baseUnit.id : chosen?.unit ?? ''
   const points = (history.data?.points ?? []).map((p) => ({ ...p, price: p.price * chartF }))
+  const f = fc.data?.status === 'ok' ? fc.data : null
+  const chartData = points.map((p) => ({ label: p.date.slice(5), price: p.price, forecast: null as number | null, band: null as [number, number] | null }))
+  if (f && f.value != null && f.low != null && f.high != null && f.target_date && chartData.length) {
+    chartData[chartData.length - 1].forecast = chartData[chartData.length - 1].price  // joins the dashed line to the last report
+    chartData.push({ label: f.target_date.slice(5), price: null as unknown as number, forecast: f.value * chartF, band: [f.low * chartF, f.high * chartF] })
+  }
   const lastPt = points.at(-1), firstPt = points[0]
   const delta = lastPt && firstPt && points.length > 1 ? Math.round((lastPt.price - firstPt.price) * 100) / 100 : null
   const pickLine = (l: Line) => {
@@ -157,6 +170,14 @@ export function Intelligence() {
             {checkedAt && <span>{t('prices.checkedAt', { when: checkedAt.toLocaleString(language.code, { dateStyle: 'medium', timeStyle: 'short' }) })}</span>}
           </p>)}
       </div>
+      {hasLive && all.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-4 rounded-2xl border p-4" style={{ background: 'var(--card)', borderColor: 'var(--border)' }} data-testid="snapshot">
+          <span className="flex h-16 w-16 items-center justify-center rounded-2xl" style={{ background: cropBg(scope.commodity) }}><CropIcon id={scope.commodity} size={48} /></span>
+          <div className="min-w-40"><p className="font-display text-2xl font-extrabold">{t(region.commodities.find((c) => c.id === scope.commodity)?.nameKey ?? 'home.cropLabel')}</p>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('prices.snapshot.where', { scope: scope.market || scope.state || region.code })}</p></div>
+          {([[total, t('prices.snapshot.lines')], [new Set(all.map((r) => r.market)).size, t('prices.snapshot.markets')], [new Set(all.map((r) => r.unit)).size, t('prices.snapshot.packages')]] as const).map(([n, label]) => (
+            <div key={label} className="rounded-xl px-4 py-2" style={{ background: 'var(--bg)' }}><p className="font-display text-xl font-extrabold tabular-nums">{n}</p><p className="text-xs" style={{ color: 'var(--muted)' }}>{label}</p></div>))}
+        </div>)}
       {stale && <p role="status" className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-900">{t('prices.stale')}</p>}
       <Card className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fit,minmax(11rem,1fr))]">
         <label className="flex flex-col gap-1 text-xs font-semibold">{t('home.cropLabel')}
@@ -193,8 +214,30 @@ export function Intelligence() {
                   {t(delta > 0 ? 'prices.trendUp' : delta < 0 ? 'prices.trendDown' : 'prices.trendFlat', { amount: money(Math.abs(delta)), date: firstPt.date })}</p>)}
               {history.isLoading ? <div aria-busy="true" className="mt-3 h-56 animate-pulse rounded-lg" style={{ background: 'var(--border)' }}><span className="sr-only">{t('prices.loading')}</span></div>
                 : history.data?.needs ? <p className="mt-3 text-sm" style={{ color: 'var(--muted)' }}>{t(history.data.needs === 'unit' ? 'prices.historyPickUnit' : 'prices.historyPickVariety')}</p>
-                : points.length > 1 ? <div className="mt-2"><PriceChart data={points.map((p) => ({ label: p.date.slice(5), price: p.price, forecast: null }))} demo={false} /></div>
+                : points.length > 1 ? <div className="mt-2"><PriceChart data={chartData} demo={false} /></div>
                   : <p className="mt-3 text-sm" style={{ color: 'var(--muted)' }}>{t('prices.historyThin')}</p>}
+              {history.data && !history.data.needs && points.length > 1 && (
+                <div className="mt-3 rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--border)' }} data-testid="forecast">
+                  <b>{t('prices.forecast.title')}</b>
+                  {!dailyOnly ? <p style={{ color: 'var(--muted)' }}>{t('prices.forecast.none.daily_only')}</p>
+                    : fc.isLoading ? <p style={{ color: 'var(--muted)' }}>{t('prices.loading')}</p>
+                    : f && f.value != null ? (<>
+                        <p className="font-semibold tabular-nums">{t('prices.forecast.ok', { value: money(f.value * chartF), date: f.target_date, low: money((f.low ?? f.value) * chartF), high: money((f.high ?? f.value) * chartF) })}</p>
+                        <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('prices.forecast.evidence', { model: t(`prices.forecast.model.${f.model}`), skill: Math.round((f.holdout_skill ?? 0) * 100), n: f.holdout_tests })} {t('prices.forecast.range')}</p></>)
+                    : fc.data ? <p style={{ color: 'var(--muted)' }}>{t(`prices.forecast.none.${fc.data.reason}`, { defaultValue: t('prices.forecast.none.too_little_history') })}</p> : null}
+                </div>)}
+              {sig?.status === 'ok' && sig.p_up != null && sig.evidence && (
+                <div className="mt-3 rounded-lg border p-3 text-sm" style={{ borderColor: 'var(--border)' }} data-testid="signal">
+                  <b>{t('prices.signal.title')}</b>
+                  <p className="mt-1 font-semibold">{sig.p_up >= 0.6 ? t('prices.signal.up', { pct: Math.round(sig.p_up * 100) })
+                    : sig.p_up <= 0.4 ? t('prices.signal.down', { pct: Math.round((1 - sig.p_up) * 100) }) : t('prices.signal.flat')}</p>
+                  <ProbGauge pUp={sig.p_up} />
+                  {sig.other_markets_change != null && (
+                    <p className="mt-3 inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold tabular-nums" style={{ borderColor: 'var(--border)', color: sig.other_markets_change >= 0 ? 'var(--up)' : 'var(--down)' }}>
+                      {sig.other_markets_change >= 0 ? '▲' : '▼'} {t('prices.signal.others', { change: `${sig.other_markets_change >= 0 ? '+' : ''}${((Math.exp(sig.other_markets_change) - 1) * 100).toFixed(1)}%`, date: sig.as_of })}</p>)}
+                  <div className="mt-3 max-w-xs"><AccuracyMeter auc={sig.evidence.auc} /></div>
+                  <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t('prices.signal.note', { auc: Math.round(sig.evidence.auc * 100), n: sig.evidence.tests })}</p>
+                </div>)}
               {history.data && <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>{t(first.period === 'monthly' ? 'prices.historyHintMonthly' : history.data?.basis === 'midpoint' ? 'prices.historyHintMid' : 'prices.historyHint', { unit: unitLabel(chartUnit || (history.data?.unit ?? first.unit)) })}</p>}
             </Card>
           </div>
@@ -235,21 +278,67 @@ export function Intelligence() {
 export function Forecasting() {
   const { t } = useTranslation()
   const { region } = useMoney()
-  const demo = getDemo(region.code)
+  const ov = useSignalOverview(region.code)
+  const [sort, setSort] = useState<'auc' | 'up' | 'down' | 'name'>('auc')
+  const name = (id: string) => t(region.commodities.find((c) => c.id === id)?.nameKey ?? 'home.cropLabel')
+  const items = [...(ov.data?.items ?? [])].sort((a, b) =>
+    sort === 'up' ? b.up / (b.up + b.down + b.even) - a.up / (a.up + a.down + a.even)
+    : sort === 'down' ? b.down / (b.up + b.down + b.even) - a.down / (a.up + a.down + a.even)
+    : sort === 'name' ? name(a.commodity).localeCompare(name(b.commodity)) : b.auc - a.auc)
+  const sum = items.reduce((s, i) => ({ up: s.up + i.up, down: s.down + i.down, even: s.even + i.even }), { up: 0, down: 0, even: 0 })
+  const newest = items.reduce((m, i) => (i.as_of > m ? i.as_of : m), '')
+  const verdict = (i: { up: number; down: number; even: number }) => (i.up > 2 * i.down ? 'up' : i.down > 2 * i.up ? 'down' : 'mixed')
+  const tile = (label: string, value: string | number, color?: string) => (
+    <div className="rounded-xl border p-4" style={{ borderColor: 'var(--border)', background: 'var(--card)' }}>
+      <p className="font-display text-3xl font-extrabold tabular-nums" style={{ color }}>{value}</p>
+      <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>{label}</p></div>)
   return (
-    <Shell title={t('nav.forecasting')}>
-      {demo ? (
-        <div className="grid gap-5 lg:grid-cols-3">
-          <Card className="lg:col-span-2"><PriceChart data={demo.series} height={300} />
-            <p className="mt-2 text-xs" style={{ color: 'var(--muted)' }}>Demo values only. Not a real forecast.</p></Card>
-          <Card className="space-y-2 text-sm">
-            <b>Forecast details</b>
-            {['Predicted price', 'Lower bound', 'Upper bound', 'Model version', 'Training data cutoff', 'MAE / RMSE / WAPE'].map((k) => (
-              <div key={k} className="flex justify-between"><span style={{ color: 'var(--muted)' }}>{k}</span><span>[from trained model]</span></div>))}
-            <p className="pt-2 text-xs" style={{ color: 'var(--muted)' }}>A forecast is an estimate, not a guaranteed price. {t('pages.limits')}</p>
-          </Card>
-        </div>
-      ) : <EmptyRegion />}
+    <Shell title={t('nav.forecasting')} live>
+      <div className="space-y-5" data-testid="signals-page">
+        <Card className="space-y-2 text-sm">
+          <p>{t('forecastPage.intro')}</p>
+          <p style={{ color: 'var(--muted)' }}>{t('forecastPage.how')}</p>
+        </Card>
+        {ov.isLoading ? <p className="text-sm" style={{ color: 'var(--muted)' }}>{t('prices.loading')}</p>
+          : items.length === 0 ? <Card><p className="text-sm" style={{ color: 'var(--muted)' }}>{t('forecastPage.empty')}</p></Card>
+          : (<>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {tile(t('forecastPage.tProducts'), items.length)}
+              {tile(t('forecastPage.tUp'), sum.up, 'var(--up)')}
+              {tile(t('forecastPage.tDown'), sum.down, 'var(--down)')}
+              {tile(t('forecastPage.tNewest'), newest)}
+            </div>
+            <Card>
+              <p className="mb-2 text-sm font-semibold">{t('forecastPage.overall')}</p>
+              <LeanBar {...sum} />
+            </Card>
+            <label className="flex items-center gap-2 text-xs font-semibold">{t('forecastPage.sort')}
+              <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="rounded-lg border px-2 py-1.5 text-sm" style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
+                <option value="auc">{t('forecastPage.sAcc')}</option><option value="up">{t('forecastPage.sUp')}</option>
+                <option value="down">{t('forecastPage.sDown')}</option><option value="name">{t('forecastPage.sName')}</option></select></label>
+            <p className="text-xs" style={{ color: 'var(--muted)' }} data-testid="legend">{t('forecastPage.legend')}</p>
+            <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {items.map((i) => (
+                <li key={i.commodity}>
+                  <Link to={`/intelligence?crop=${i.commodity}`} className="block rounded-2xl border p-4 shadow-sm transition-shadow hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                    style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
+                    <div className="mb-3 flex items-center gap-3">
+                      <span className="flex h-12 w-12 items-center justify-center rounded-xl" style={{ background: cropBg(i.commodity) }}><CropIcon id={i.commodity} size={36} /></span>
+                      <span className="font-display text-lg font-extrabold">{name(i.commodity)}</span>
+                    </div>
+                    <p className="mb-2 text-sm font-semibold" style={{ color: verdict(i) === 'up' ? 'var(--up)' : verdict(i) === 'down' ? 'var(--down)' : 'var(--muted)' }}>
+                      {verdict(i) === 'up' ? '▲ ' : verdict(i) === 'down' ? '▼ ' : ''}{t(`forecastPage.verdict.${verdict(i)}`)}</p>
+                    <LeanBar up={i.up} down={i.down} even={i.even} />
+                    <p className="mt-1 text-xs" style={{ color: 'var(--muted)' }}>{t('forecastPage.listings', { up: i.up, down: i.down, n: i.up + i.down + i.even })}</p>
+                    <p className="mb-1 mt-3 text-xs font-semibold">{t('forecastPage.pastAccuracy')}</p>
+                    <AccuracyMeter auc={i.auc} />
+                    <p className="mt-1 text-[11px]" style={{ color: 'var(--muted)' }}>{t('forecastPage.auc', { auc: Math.round(i.auc * 100), n: i.tests })}</p>
+                  </Link>
+                </li>))}
+            </ul>
+            <p className="text-xs" style={{ color: 'var(--muted)' }}>{t('forecastPage.note', { date: ov.data?.evaluated_through })}</p>
+          </>)}
+      </div>
     </Shell>
   )
 }

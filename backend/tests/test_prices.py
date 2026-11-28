@@ -205,7 +205,7 @@ def test_ams_import_command_reports_unmapped_products_and_rejects_nothing_silent
     from app.prices import ams, ingest
     monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Test Terminal Market Vegetables Prices"}, {"slug_id": 2, "report_title": "Broken"}])
 
-    def fake(slug, begin, end):
+    def fake(slug, begin, end, gaps=None):
         if slug == "2":
             raise RuntimeError("MARS API returned HTTP 500 for reports/2/Report%20Details")
         return AMS_RAW
@@ -370,3 +370,178 @@ def test_ams_subtypes_share_one_crop_and_show_in_the_variety():
     assert (rom.commodity, ice.commodity) == ("lettuce", "lettuce") and rom.variety == "Romaine" and ice.variety == "Iceberg"
     assert ams.parse_record({**base, "commodity": "Apples"}).commodity == "apple"
     assert ams.parse_record({**base, "commodity": "Peppers, Bell Type"}).commodity == "bell_pepper"  # unchanged
+
+
+def test_ams_range_uses_the_exact_window_and_does_not_read_dates_as_a_day_count(client, monkeypatch, capsys):
+    from datetime import date as d
+    from app.prices import ams, ingest
+    monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Test Terminal Market Vegetables Prices"}])
+    asked = []
+    monkeypatch.setattr(ams, "fetch_report_rows", lambda slug, begin, end, gaps=None: asked.append((begin, end)) or AMS_RAW)
+    monkeypatch.setattr(sys, "argv", ["ingest", "ams-range", "2026-07-22", "2026-07-29"])  # exactly what the command line gives
+    ingest.run_ams(begin=d.fromisoformat(sys.argv[2]), end=d.fromisoformat(sys.argv[3]))
+    assert "fetching 2026-07-22 to 2026-07-29" in capsys.readouterr().out
+    assert asked == [("07/22/2026", "07/29/2026")]
+
+
+def test_lines_listed_twice_with_different_prices_are_both_kept_and_identical_rows_collapse(client, monkeypatch, capsys):
+    from decimal import Decimal
+    from app.prices import ams, ingest
+    base = {"report_date": "11/24/2026", "market_location_state": "GA", "market_location_name": "Atlanta Terminal Market", "commodity": "Apples",
+            "variety": "PINK LADY", "package": "cartons tray pack", "grade": "WA Extra Fancy", "low_price": "38", "high_price": "39"}
+    rows = [base, {**base, "low_price": "36", "high_price": "37"}, {**base, "low_price": "36", "high_price": "37"},  # an exact repeat
+            {**base, "variety": "GALA", "low_price": "30", "high_price": "31"}]
+    # an earlier import stored just one of the two lines under the plain description
+    with SessionLocal() as db:
+        ingest.upsert(db, [ams.parse_record(base)])
+    monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Test Terminal Market Fruit Prices"}])
+    monkeypatch.setattr(ams, "fetch_report_rows", lambda slug, begin, end, gaps=None: rows)
+    monkeypatch.setattr(sys, "argv", ["ingest", "ams", "3"])
+    ingest.run_ams()
+    ingest.run_ams()  # re-running changes nothing
+    capsys.readouterr()
+    with SessionLocal() as db:
+        got = sorted((o.variety, o.grade, float(o.min_price)) for o in db.query(PriceObservation).all())
+    assert got == [("GALA", "WA Extra Fancy", 30.0), ("PINK LADY", "WA Extra Fancy · price line 1 of 2", 36.0), ("PINK LADY", "WA Extra Fancy · price line 2 of 2", 38.0)]
+
+
+def test_mars_retries_a_temporary_500_then_splits_a_window_that_keeps_failing(monkeypatch):
+    from app.prices import ams
+    monkeypatch.setattr(ams.time, "sleep", lambda s: None)
+    calls = []
+
+    def rows(slug, begin, end, section="Report Details"):
+        calls.append((begin, end))
+        if (begin, end) == ("01/01/2026", "01/31/2026"):  # the whole month always fails, as a big request did for USDA
+            raise ams.MarsError("MARS API returned HTTP 500", transient=True)
+        return {"results": [{"report_date": begin}]}
+    monkeypatch.setattr(ams, "report_rows", rows)
+    gaps: list = []
+    got = ams.fetch_report_rows("1", "01/01/2026", "01/31/2026", gaps)
+    assert len(got) == 2 and not gaps and calls[:3] == [("01/01/2026", "01/31/2026")] * 3  # three tries, then halves
+    assert calls[3:] == [("01/01/2026", "01/16/2026"), ("01/17/2026", "01/31/2026")]
+
+
+def test_mars_windows_that_still_fail_are_listed_not_dropped_and_client_errors_are_not_retried(monkeypatch, capsys, client):
+    from app.prices import ams, ingest
+    monkeypatch.setattr(ams.time, "sleep", lambda s: None)
+    bad = {"01/01/2026"}
+    seen = []
+
+    def rows(slug, begin, end, section="Report Details"):
+        seen.append(begin)
+        if begin in bad:
+            raise ams.MarsError("MARS API returned HTTP 500", transient=True)
+        return {"results": []}
+    monkeypatch.setattr(ams, "report_rows", rows)
+    gaps: list = []
+    ams.fetch_report_rows("1", "01/01/2026", "01/05/2026", gaps)  # shorter than the split limit: no halving
+    assert gaps == [("01/01/2026", "01/05/2026", "MARS API returned HTTP 500")]
+    monkeypatch.setattr(ams, "report_rows", lambda *a, **k: (_ for _ in ()).throw(ams.MarsError("MARS API returned HTTP 404", transient=False)))
+    import pytest
+    with pytest.raises(ams.MarsError):
+        ams.fetch_report_rows("1", "01/01/2026", "01/05/2026")
+    # and the import prints the gap with the command that fills it
+    monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Test Terminal Market Fruit Prices"}])
+    monkeypatch.setattr(ams, "report_rows", rows)
+    monkeypatch.setattr(sys, "argv", ["ingest", "ams-range", "2026-01-01", "2026-01-05"])
+    from datetime import date as d
+    ingest.run_ams(begin=d(2026, 1, 1), end=d(2026, 1, 5))
+    out = capsys.readouterr().out
+    assert "INCOMPLETE" in out and "ams-range 2026-01-01 2026-01-05" in out
+
+
+def test_ams_range_can_be_limited_to_reports_whose_title_matches(client, monkeypatch, capsys):
+    from datetime import date as d
+    from app.prices import ams, ingest
+    monkeypatch.setattr(ams, "terminal_reports", lambda: [{"slug_id": 1, "report_title": "Atlanta Terminal Market Fruit Prices"}, {"slug_id": 2, "report_title": "Philadelphia Terminal Market Fruit Prices"}])
+    asked = []
+    monkeypatch.setattr(ams, "fetch_report_rows", lambda slug, begin, end, gaps=None: asked.append(slug) or [])
+    ingest.run_ams(begin=d(2026, 1, 1), end=d(2026, 1, 5), only="philadelphia")
+    assert asked == ["2"] and "1 terminal market reports found" in capsys.readouterr().out
+
+
+def test_stats_command_prints_what_is_stored(client, monkeypatch, capsys):
+    from app.prices import ams, ingest
+    with SessionLocal() as db:
+        ingest.upsert(db, [ams.parse_record({"report_date": "11/24/2026", "market_location_state": "GA", "market_location_name": "Atlanta Terminal Market",
+                                              "commodity": "Apples", "package": "cartons", "low_price": "38", "high_price": "39"})])
+    ingest.stats()
+    out = capsys.readouterr().out
+    assert "US ams: 1 price observations, 2026-11-24 to 2026-11-24 (1 days), 1 markets, 1 products" in out and "Total: 1 price observations" in out
+
+
+def _signal_rows(db, passes=True, as_of=None):
+    from datetime import date, timedelta
+    from app.models import PriceSignal, SignalEvidence, utcnow
+    as_of = as_of or utcnow().date()
+    db.add(SignalEvidence(commodity="tomato", country="US", auc=0.71, auc_low=0.66, auc_high=0.75, min_window_auc=0.63, tests=900,
+                          passes=passes, evaluated_through=as_of))
+    for g, p in (("Large", 0.7), ("Medium", 0.5)):
+        db.add(PriceSignal(country="US", source="ams", market="Chicago", commodity="tomato", variety="", grade=g, unit="25 lb", as_of=as_of,
+                           p_up=p, other_markets_change=0.03, trained_through=as_of - timedelta(days=8)))
+    db.commit()
+
+
+def test_signal_only_for_products_with_passing_evidence(client):
+    from app.db import SessionLocal
+    q = "/api/prices/signal?country=US&commodity=tomato&market=Chicago"
+    assert client.get(q).json() == {"status": "none", "reason": "not_evaluated"}
+    with SessionLocal() as db:
+        _signal_rows(db, passes=False)
+    assert client.get(q).json() == {"status": "none", "reason": "no_evidence"}
+
+
+def test_signal_reads_what_the_job_wrote(client):
+    from app.db import SessionLocal
+    with SessionLocal() as db:
+        _signal_rows(db)
+    r = client.get("/api/prices/signal?country=US&commodity=tomato&market=Chicago").json()
+    assert r["status"] == "ok" and r["p_up"] == 0.6 and r["lines"] == 2 and r["evidence"]["auc_low"] == 0.66
+    assert client.get("/api/prices/signal?country=US&commodity=tomato").json()["reason"] == "needs_market"
+    assert client.get("/api/prices/signal?country=US&commodity=tomato&market=Boston").json()["reason"] == "no_read"
+
+
+def test_signal_goes_quiet_when_old(client):
+    from datetime import timedelta
+    from app.db import SessionLocal
+    from app.models import utcnow
+    with SessionLocal() as db:
+        _signal_rows(db, as_of=utcnow().date() - timedelta(days=12))
+    assert client.get("/api/prices/signal?country=US&commodity=tomato&market=Chicago").json()["reason"] == "stale"
+
+
+def test_signals_list_only_passing_products_with_fresh_reads(client):
+    from app.db import SessionLocal
+    with SessionLocal() as db:
+        _signal_rows(db)
+    r = client.get("/api/prices/signals?country=US").json()
+    assert [i["commodity"] for i in r["items"]] == ["tomato"]
+    assert r["items"][0]["up"] == 1 and r["items"][0]["even"] == 1 and r["items"][0]["tests"] == 900
+    with SessionLocal() as db:
+        from app.models import SignalEvidence
+        db.get(SignalEvidence, "tomato").passes = False
+        db.commit()
+    assert client.get("/api/prices/signals?country=US").json()["items"] == []
+
+
+def test_summary_counts_what_is_stored(client):
+    from app.price_api import _summary_cache
+    _summary_cache.clear()
+    assert client.get("/api/prices/summary?country=US").json() == {"reports": 0, "products": 0, "markets": 0, "newest": None}
+    _summary_cache.clear()
+
+
+def test_summary_with_data(client):
+    from datetime import date
+    from app.db import SessionLocal
+    from app.models import PriceObservation
+    from app.price_api import _summary_cache
+    _summary_cache.clear()
+    with SessionLocal() as db:
+        for m, c in (("Chicago", "tomato"), ("Boston", "tomato"), ("Boston", "onion")):
+            db.add(PriceObservation(country="US", source="ams", state="X", district="", market=m, commodity_raw=c, commodity=c, variety="", grade="",
+                                    obs_date=date(2026, 11, 20), min_price=1, max_price=2, modal_price=None, unit="25 lb", currency="USD", period="daily"))
+        db.commit()
+    assert client.get("/api/prices/summary?country=US").json() == {"reports": 3, "products": 2, "markets": 2, "newest": "2026-11-20"}
+    _summary_cache.clear()

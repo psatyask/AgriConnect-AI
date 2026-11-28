@@ -5,7 +5,7 @@ Prices are quoted per package ("25 lb sacks loose"), as a low-high range. Nothin
 the package is kept as the unit, and there is no modal price (USDA's "mostly" range is not one).
 """
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from urllib.parse import quote
 
@@ -115,15 +115,23 @@ STATES = {
 }
 
 
+class MarsError(RuntimeError):
+    """A failed MARS request. `transient` marks server errors and network trouble, which are worth retrying."""
+
+    def __init__(self, message: str, transient: bool = False):
+        super().__init__(message)
+        self.transient = transient
+
+
 def _get(path: str, params: dict | None = None):
     if not settings.mars_api_key:
         raise RuntimeError("MARS_API_KEY is not set in .env")
     try:
         r = requests.get(f"{BASE}/{path}", params=params, auth=(settings.mars_api_key, ""), timeout=60)
     except requests.RequestException as e:
-        raise RuntimeError(f"Could not reach the MARS API ({type(e).__name__})") from None
+        raise MarsError(f"Could not reach the MARS API ({type(e).__name__})", transient=True) from None
     if r.status_code != 200:
-        raise RuntimeError(f"MARS API returned HTTP {r.status_code} for {path}")
+        raise MarsError(f"MARS API returned HTTP {r.status_code} for {path}", transient=r.status_code >= 500 or r.status_code == 429)
     return r.json()
 
 
@@ -163,9 +171,40 @@ def terminal_reports() -> list[dict]:
     return out
 
 
-def fetch_report_rows(slug_id: str, begin: str, end: str) -> list[dict]:
+RETRY_WAITS = (2, 6)   # seconds before the 2nd and 3rd try of one request
+MIN_SPLIT_DAYS = 7     # a failing window is halved until it is this short
+
+
+def _day(text: str) -> date:
+    return datetime.strptime(text, "%m/%d/%Y").date()
+
+
+def fetch_report_rows(slug_id: str, begin: str, end: str, gaps: list[tuple[str, str, str]] | None = None) -> list[dict]:
+    """Rows for a window. A temporary server error is retried; a window that keeps failing is split in halves and each half
+    fetched on its own. Halves that still fail are appended to `gaps` as (begin, end, reason) instead of being dropped silently.
+    Raises only when `gaps` is not given or nothing at all could be fetched."""
     time.sleep(0.15)  # be polite to a free public service
-    return rows_of(report_rows(slug_id, begin, end))
+    last: MarsError | None = None
+    for wait in (0, *RETRY_WAITS):
+        if wait:
+            time.sleep(wait)
+        try:
+            return rows_of(report_rows(slug_id, begin, end))
+        except MarsError as exc:
+            last = exc
+            if not exc.transient:
+                break
+    a, b = _day(begin), _day(end)
+    if last is not None and last.transient and (b - a).days + 1 > MIN_SPLIT_DAYS and gaps is not None:
+        mid = a + (b - a) // 2
+        rows: list[dict] = []
+        for lo, hi in ((a, mid), (mid + timedelta(days=1), b)):
+            rows += fetch_report_rows(slug_id, lo.strftime("%m/%d/%Y"), hi.strftime("%m/%d/%Y"), gaps)
+        return rows
+    if gaps is not None and last is not None:
+        gaps.append((begin, end, str(last)))
+        return []
+    raise last  # type: ignore[misc]
 
 
 def _clean(v: object) -> str:

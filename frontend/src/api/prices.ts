@@ -35,3 +35,44 @@ export const usePriceHistory = (country: string, s: Scope, variety = '', unit = 
       if (unit) p.set('unit', unit)
       return api<History>(`/api/prices/history?${p}&days=180`)
     } })
+
+export interface Forecast {
+  status: 'ok' | 'no_forecast'; reason?: string; basis?: 'modal' | 'midpoint'; unit?: string | null
+  model?: 'ma5' | 'ses' | 'trend'; value?: number; low?: number; high?: number; target_date?: string
+  holdout_skill?: number; holdout_tests?: number; tests?: number; horizon_days: number
+}
+
+/** Only asked for once a single price line is chosen; the server decides whether the evidence supports a forecast. */
+export const usePriceForecast = (country: string, s: Scope, variety: string, unit: string, enabled: boolean) =>
+  useQuery({ queryKey: [country, 'price-forecast', s, variety, unit], retry: false, enabled,
+    queryFn: () => {
+      const p = qs(country, s)
+      if (variety) p.set('variety', variety)
+      if (unit) p.set('unit', unit)
+      return api<Forecast>(`/api/prices/forecast?${p}`)
+    } })
+
+export interface Signal {
+  status: 'ok' | 'none'; reason?: string; p_up?: number; lines?: number; as_of?: string; other_markets_change?: number | null
+  evidence?: { auc: number; auc_low: number; auc_high: number; tests: number; through: string }
+}
+
+/** Direction lean from the offline model; the server returns nothing unless the product's held-out evidence passed. Needs one market. */
+export const useDirectionSignal = (country: string, s: Scope, variety: string, unit: string, enabled: boolean) =>
+  useQuery({ queryKey: [country, 'price-signal', s, variety, unit], retry: false, enabled: enabled && !!s.market,
+    queryFn: () => {
+      const p = qs(country, s)
+      if (variety) p.set('variety', variety)
+      if (unit) p.set('unit', unit)
+      return api<Signal>(`/api/prices/signal?${p}`)
+    } })
+
+export interface SignalOverview { items: { commodity: string; auc: number; auc_low: number; tests: number; up: number; down: number; even: number; as_of: string }[]; evaluated_through: string | null }
+
+export const useSignalOverview = (country: string) =>
+  useQuery({ queryKey: [country, 'price-signals'], retry: false, queryFn: () => api<SignalOverview>(`/api/prices/signals?country=${country}`) })
+
+export interface PriceSummary { reports: number; products: number; markets: number; newest: string | null }
+
+export const usePriceSummary = (country: string) =>
+  useQuery({ queryKey: [country, 'price-summary'], retry: false, staleTime: 5 * 60_000, queryFn: () => api<PriceSummary>(`/api/prices/summary?country=${country}`) })

@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from datetime import date
 
-from sqlalchemy import Boolean, Date, DateTime, Enum, ForeignKey, Index, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Enum, Float, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -125,3 +125,45 @@ class PriceObservation(Base):
     currency: Mapped[str] = mapped_column(String(3))
     period: Mapped[str] = mapped_column(String(10), default="daily", server_default="daily")
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PriceSignal(Base):
+    """Latest model read for one price line: the chance it goes UP if it moves 2%+ in the next 7 days.
+
+    Written by the offline job (python -m ml.predict) only for products whose held-out evidence passed; the web app just reads it.
+    """
+
+    __tablename__ = "price_signals"
+    __table_args__ = (UniqueConstraint("source", "market", "commodity", "variety", "grade", "unit", name="uq_price_signal"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    country: Mapped[str] = mapped_column(String(2))
+    source: Mapped[str] = mapped_column(String(40))
+    state: Mapped[str] = mapped_column(String(100), default="")
+    market: Mapped[str] = mapped_column(String(200))
+    commodity: Mapped[str] = mapped_column(String(40))
+    variety: Mapped[str] = mapped_column(String(200), default="")
+    grade: Mapped[str] = mapped_column(String(200), default="")
+    unit: Mapped[str] = mapped_column(String(100))
+    as_of: Mapped[date] = mapped_column(Date)                      # date of the newest report the read is based on
+    p_up: Mapped[float] = mapped_column(Float)
+    other_markets_change: Mapped[float | None] = mapped_column(Float, nullable=True)  # what the product did elsewhere over 7 days (log change)
+    trained_through: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SignalEvidence(Base):
+    """How well the direction model did on dates it never saw, per product. A signal is shown only when `passes` is true."""
+
+    __tablename__ = "signal_evidence"
+
+    commodity: Mapped[str] = mapped_column(String(40), primary_key=True)
+    country: Mapped[str] = mapped_column(String(2), default="US")
+    auc: Mapped[float] = mapped_column(Float)
+    auc_low: Mapped[float] = mapped_column(Float)
+    auc_high: Mapped[float] = mapped_column(Float)
+    min_window_auc: Mapped[float] = mapped_column(Float)
+    tests: Mapped[int] = mapped_column(Integer)                    # price moves scored
+    passes: Mapped[bool] = mapped_column(Boolean)
+    evaluated_through: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
